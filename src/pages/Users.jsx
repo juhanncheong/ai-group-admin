@@ -562,6 +562,15 @@ export default function Users() {
     reason: "",
   });
 
+  // Ban orders modal
+  const [orderStartBlockModal, setOrderStartBlockModal] = useState({
+    open: false,
+    userId: null,
+    phoneNumber: "",
+    blocked: true,
+    reason: "",
+  });
+
   // Reset password modal
   const [passwordModal, setPasswordModal] = useState({
     open: false,
@@ -1240,6 +1249,79 @@ async function toggleSigninReward(user) {
       });
     } catch (e) {
       toast.error(e.message || "Failed to update ban status");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function submitOrderStartBlock() {
+    const userId = orderStartBlockModal.userId;
+    if (!userId) return;
+  
+    const reason = String(orderStartBlockModal.reason || "").trim();
+  
+    if (orderStartBlockModal.blocked && !reason) {
+      toast.error("Please enter a ban order reason.");
+      return;
+    }
+  
+    setBusyId(userId);
+  
+    try {
+      const data = await fetchJSON(
+        `${API_BASE}/api/admin/users/${userId}/order-start-block`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            blocked: orderStartBlockModal.blocked,
+            message: reason,
+          }),
+        }
+      );
+  
+      setRows((prev) =>
+        prev.map((u) =>
+          u._id === userId
+            ? {
+                ...u,
+                orderStartBlocked: data.user.orderStartBlocked,
+                orderStartBlockMessage: data.user.orderStartBlockMessage,
+                orderStartBlockedAt: data.user.orderStartBlockedAt,
+              }
+            : u
+        )
+      );
+  
+      setActionsModal((prev) =>
+        prev.user && prev.user._id === userId
+          ? {
+              ...prev,
+              user: {
+                ...prev.user,
+                orderStartBlocked: data.user.orderStartBlocked,
+                orderStartBlockMessage: data.user.orderStartBlockMessage,
+                orderStartBlockedAt: data.user.orderStartBlockedAt,
+              },
+            }
+          : prev
+      );
+  
+      toast.success(
+        data.user.orderStartBlocked
+          ? "User banned from starting orders"
+          : "User unbanned from starting orders"
+      );
+  
+      setOrderStartBlockModal({
+        open: false,
+        userId: null,
+        phoneNumber: "",
+        blocked: true,
+        reason: "",
+      });
+    } catch (e) {
+      toast.error(e.message || "Failed to update order ban");
     } finally {
       setBusyId(null);
     }
@@ -3047,6 +3129,55 @@ async function toggleSigninReward(user) {
                       Permanent removal (danger)
                     </div>
                   </button>
+
+                  <button
+                    disabled={busyId === actionsModal.user._id}
+                    onClick={() => {
+                      const u = actionsModal.user;
+                      const currentlyBlocked = Boolean(u.orderStartBlocked);
+                  
+                      // If already banned from orders, unban directly.
+                      if (currentlyBlocked) {
+                        setOrderStartBlockModal({
+                          open: true,
+                          userId: u._id,
+                          phoneNumber: u.phoneNumber || "",
+                          blocked: false,
+                          reason: "",
+                        });
+                        return;
+                      }
+                  
+                      // If not banned, open modal and force admin to enter reason.
+                      setActionsModal({ open: false, user: null });
+                  
+                      setOrderStartBlockModal({
+                        open: true,
+                        userId: u._id,
+                        phoneNumber: u.phoneNumber || "",
+                        blocked: true,
+                        reason: "",
+                      });
+                    }}
+                    className={`${actionPlainClass} disabled:opacity-50`}
+                  >
+                    <div className="font-semibold">
+                      {actionsModal.user.orderStartBlocked ? "Unban Orders" : "Ban Orders"}
+                    </div>
+                  
+                    <div className="mt-1 text-[11px] opacity-70">
+                      {actionsModal.user.orderStartBlocked
+                        ? "Allow this user to start orders again"
+                        : "Block this user from clicking Start Order"}
+                    </div>
+                  
+                    {actionsModal.user.orderStartBlocked ? (
+                      <div className={`mt-2 ${drawerMutedClass}`}>
+                        Reason: {actionsModal.user.orderStartBlockMessage || "-"}
+                      </div>
+                    ) : null}
+                  </button>
+
                 </div>
               </div>
             </div>
@@ -3072,6 +3203,122 @@ async function toggleSigninReward(user) {
           </div>
         ) : null}
       </Drawer>
+
+      <Modal
+        open={orderStartBlockModal.open}
+        title={orderStartBlockModal.blocked ? "Ban Orders" : "Unban Orders"}
+        subtitle={
+          orderStartBlockModal.userId
+            ? `User: ${orderStartBlockModal.phoneNumber}`
+            : ""
+        }
+        onClose={() =>
+          setOrderStartBlockModal({
+            open: false,
+            userId: null,
+            phoneNumber: "",
+            blocked: true,
+            reason: "",
+          })
+        }
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={() =>
+                setOrderStartBlockModal({
+                  open: false,
+                  userId: null,
+                  phoneNumber: "",
+                  blocked: true,
+                  reason: "",
+                })
+              }
+              className={
+                theme === "dark"
+                  ? "rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs text-white/70 hover:bg-white/10"
+                  : "rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs text-gray-700 hover:bg-gray-50"
+              }
+            >
+              Cancel
+            </button>
+      
+            <button
+              disabled={busyId === orderStartBlockModal.userId}
+              onClick={submitOrderStartBlock}
+              className={
+                orderStartBlockModal.blocked
+                  ? theme === "dark"
+                    ? "rounded-xl border border-red-500/25 bg-red-500/15 px-4 py-2 text-xs text-red-200 hover:bg-red-500/20 disabled:opacity-50"
+                    : "rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700 hover:bg-red-100 disabled:opacity-50"
+                  : theme === "dark"
+                  ? "rounded-xl border border-emerald-500/25 bg-emerald-500/15 px-4 py-2 text-xs text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50"
+                  : "rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+              }
+            >
+              {busyId === orderStartBlockModal.userId
+                ? "Saving..."
+                : orderStartBlockModal.blocked
+                ? "Confirm Ban Orders"
+                : "Confirm Unban Orders"}
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <div
+            className={
+              orderStartBlockModal.blocked
+                ? theme === "dark"
+                  ? "rounded-2xl border border-red-500/25 bg-red-500/10 p-3 text-xs text-red-200"
+                  : "rounded-2xl border border-red-200 bg-red-50 p-3 text-xs text-red-700"
+                : theme === "dark"
+                ? "rounded-2xl border border-emerald-500/25 bg-emerald-500/10 p-3 text-xs text-emerald-200"
+                : "rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-700"
+            }
+          >
+            {orderStartBlockModal.blocked
+              ? "This will stop the user from starting new orders. When they click Start Order, they will see your custom message."
+              : "This will allow the user to start orders again."}
+          </div>
+      
+          {orderStartBlockModal.blocked ? (
+            <div
+              className={
+                theme === "dark"
+                  ? "rounded-2xl border border-white/10 bg-white/5 p-3"
+                  : "rounded-2xl border border-gray-200 bg-gray-50 p-3"
+              }
+            >
+              <div
+                className={
+                  theme === "dark"
+                    ? "text-xs font-semibold text-white"
+                    : "text-xs font-semibold text-gray-900"
+                }
+              >
+                Reason / User Message
+              </div>
+      
+              <textarea
+                value={orderStartBlockModal.reason}
+                onChange={(e) =>
+                  setOrderStartBlockModal((p) => ({
+                    ...p,
+                    reason: e.target.value,
+                  }))
+                }
+                rows={4}
+                placeholder="Example: Your order function is temporarily restricted. Please contact customer service."
+                className={
+                  theme === "dark"
+                    ? "mt-2 w-full resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/90 placeholder:text-white/30 outline-none focus:border-white/20"
+                    : "mt-2 w-full resize-none rounded-xl border border-gray-300 bg-white px-3 py-2 text-xs text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-400"
+                }
+              />
+            </div>
+          ) : null}
+        </div>
+      </Modal>
 
       {/* Ban modal */}
       <Modal
