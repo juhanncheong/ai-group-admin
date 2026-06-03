@@ -21,8 +21,6 @@ const LOGO_IMAGE = "/logo.png";
 export default function AdminLogin() {
   const navigate = useNavigate();
 
-  const [email, setEmail] = useState("admin@example.com");
-  const [password, setPassword] = useState("admin123456");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -169,7 +167,6 @@ export default function AdminLogin() {
                         onChange={(e) => setEmail(e.target.value)}
                         type="email"
                         autoComplete="username"
-                        placeholder="admin@example.com"
                         className="min-h-[58px] w-full rounded-2xl border border-[#decfb8] bg-white px-4 pl-12 text-base font-normal text-[#2f2a24] outline-none transition placeholder:text-[#b5a58f] focus:border-[#b9975f] focus:bg-white focus:ring-4 focus:ring-[#c7a66d]/15"
                       />
                     </div>
