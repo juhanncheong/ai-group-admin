@@ -1,0 +1,1190 @@
+import { useEffect, useMemo, useState } from "react";
+import {
+  Check,
+  CheckCircle2,
+  Loader2,
+  LockKeyhole,
+  Pencil,
+  Phone,
+  Plus,
+  RefreshCw,
+  Send,
+  ShieldCheck,
+  Smartphone,
+  Trash2,
+  X,
+  Wifi,
+  WifiOff,
+} from "lucide-react";
+import { toast } from "react-toastify";
+import Shell from "../components/Shell";
+import { api } from "../api";
+import { useTheme } from "../context/ThemeContext";
+
+const CACHE_TTL = 1000 * 60 * 30; // 30 minutes
+
+function cacheGet(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+    if (!parsed || !parsed.time) return null;
+
+    if (Date.now() - parsed.time > CACHE_TTL) {
+      localStorage.removeItem(key);
+      return null;
+    }
+
+    return parsed.data;
+  } catch (_) {
+    return null;
+  }
+}
+
+function cacheSet(key, data) {
+  try {
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        time: Date.now(),
+        data,
+      }),
+    );
+  } catch (_) {}
+}
+
+export default function TelegramConnect() {
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
+
+  const [accounts, setAccounts] = useState(() => {
+    return cacheGet("telegramConnect:accounts") || [];
+  });
+
+  const [checking, setChecking] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [step, setStep] = useState("phone"); // phone | code | password | success
+
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [label, setLabel] = useState("");
+  const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
+
+  const [loading, setLoading] = useState(false);
+  const [actionId, setActionId] = useState("");
+
+  useEffect(() => {
+    loadAccounts({
+      silent: accounts.length > 0,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const stats = useMemo(() => {
+    const connected = accounts.filter(
+      (item) => item.isConnected && item.status === "connected",
+    ).length;
+
+    const disconnected = accounts.length - connected;
+
+    return {
+      total: accounts.length,
+      connected,
+      disconnected,
+    };
+  }, [accounts]);
+
+  async function loadAccounts(options = {}) {
+    const silent = options.silent === true;
+
+    try {
+      const cached = cacheGet("telegramConnect:accounts");
+
+      if (Array.isArray(cached)) {
+        setAccounts(cached);
+      }
+
+      if (silent) {
+        setRefreshing(true);
+      } else if (!Array.isArray(cached)) {
+        setChecking(true);
+      }
+
+      const res = await api.get("/api/telegram-auth/accounts");
+      const list = Array.isArray(res.data?.data) ? res.data.data : [];
+
+      cacheSet("telegramConnect:accounts", list);
+      setAccounts(list);
+    } catch (err) {
+      console.error("Load Telegram accounts error:", err);
+
+      if (!silent) {
+        toast.error(
+          err?.response?.data?.message ||
+            err?.response?.data?.error ||
+            "Failed to load Telegram accounts",
+        );
+      }
+    } finally {
+      setChecking(false);
+      setRefreshing(false);
+    }
+  }
+
+  function openConnectModal(account = null) {
+    setModalOpen(true);
+    setStep("phone");
+    setCode("");
+    setPassword("");
+
+    if (account?.phoneNumber) {
+      setPhoneNumber(account.phoneNumber);
+      setLabel(account.label || "");
+    } else {
+      setPhoneNumber("");
+      setLabel("");
+    }
+  }
+
+  function closeModal() {
+    if (loading) return;
+
+    setModalOpen(false);
+    setStep("phone");
+    setPhoneNumber("");
+    setLabel("");
+    setCode("");
+    setPassword("");
+  }
+
+  async function handleSendCode(e) {
+    e.preventDefault();
+
+    const cleanPhone = String(phoneNumber || "").trim();
+    const cleanLabel = String(label || "").trim();
+
+    if (!cleanPhone) {
+      toast.error("Telegram phone number is required");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const res = await api.post("/api/telegram-auth/send-code", {
+        phoneNumber: cleanPhone,
+        label: cleanLabel,
+      });
+
+      toast.success(res.data?.message || "Telegram code sent");
+      setStep("code");
+      await loadAccounts({ silent: true });
+    } catch (err) {
+      console.error("Send code error:", err);
+      toast.error(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Failed to send Telegram code",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleVerifyCode(e) {
+    e.preventDefault();
+
+    const cleanPhone = String(phoneNumber || "").trim();
+    const cleanCode = String(code || "").trim();
+
+    if (!cleanPhone || !cleanCode) {
+      toast.error("Phone number and code are required");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const res = await api.post("/api/telegram-auth/verify-code", {
+        phoneNumber: cleanPhone,
+        code: cleanCode,
+      });
+
+      if (res.data?.needsPassword) {
+        toast.info("Telegram 2FA password required");
+        setStep("password");
+        return;
+      }
+
+      toast.success(res.data?.message || "Telegram account connected");
+      setStep("success");
+      await loadAccounts({ silent: true });
+    } catch (err) {
+      const data = err?.response?.data;
+
+      if (data?.needsPassword) {
+        toast.info("Telegram 2FA password required");
+        setStep("password");
+        return;
+      }
+
+      console.error("Verify code error:", err);
+      toast.error(data?.message || data?.error || "Failed to verify code");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleVerifyPassword(e) {
+    e.preventDefault();
+
+    const cleanPhone = String(phoneNumber || "").trim();
+
+    if (!cleanPhone || !password) {
+      toast.error("Phone number and 2FA password are required");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const res = await api.post("/api/telegram-auth/verify-password", {
+        phoneNumber: cleanPhone,
+        password,
+      });
+
+      toast.success(res.data?.message || "Telegram account connected");
+      setStep("success");
+      await loadAccounts({ silent: true });
+    } catch (err) {
+      console.error("Verify password error:", err);
+      toast.error(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Failed to verify Telegram password",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleTestAccount(accountId) {
+    if (!accountId) return;
+
+    setActionId(accountId);
+
+    try {
+      const res = await api.post(
+        `/api/telegram-auth/accounts/${accountId}/test`,
+      );
+      toast.success(res.data?.message || "Telegram session is working");
+      await loadAccounts({ silent: true });
+    } catch (err) {
+      console.error("Test Telegram account error:", err);
+      toast.error(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Telegram session test failed",
+      );
+      await loadAccounts({ silent: true });
+    } finally {
+      setActionId("");
+    }
+  }
+
+  async function handleUpdateAccountLabel(accountId, newLabel) {
+    if (!accountId) return;
+
+    setActionId(accountId);
+
+    try {
+      const res = await api.patch(
+        `/api/telegram-auth/accounts/${accountId}/label`,
+        {
+          label: String(newLabel || "").trim(),
+        },
+      );
+
+      toast.success(res.data?.message || "Account label updated");
+      await loadAccounts({ silent: true });
+    } catch (err) {
+      console.error("Update account label error:", err);
+      toast.error(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Failed to update account label",
+      );
+    } finally {
+      setActionId("");
+    }
+  }
+
+  async function handleDeleteAccount(accountId) {
+    if (!accountId) return;
+
+    const yes = window.confirm(
+      "Delete this Telegram account from admin panel?",
+    );
+
+    if (!yes) return;
+
+    setActionId(accountId);
+
+    try {
+      const res = await api.delete(`/api/telegram-auth/accounts/${accountId}`);
+      toast.success(res.data?.message || "Telegram account deleted");
+      await loadAccounts({ silent: true });
+    } catch (err) {
+      console.error("Delete Telegram account error:", err);
+      toast.error(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Failed to delete Telegram account",
+      );
+    } finally {
+      setActionId("");
+    }
+  }
+
+  return (
+    <Shell title="Telegram Accounts">
+      <div
+        className={`-mx-3 -my-3 min-h-[calc(100vh-78px)] px-6 py-6 ${
+          isDark ? "bg-[#202127]" : "bg-[#f4efe6]"
+        }`}
+      >
+        <section className="space-y-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <div
+                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${
+                  isDark
+                    ? "bg-white/[0.06] text-white/65"
+                    : "bg-white text-[#6d6254]"
+                }`}
+              >
+                <Smartphone className="h-4 w-4" />
+              </div>
+
+              <div className="min-w-0">
+                <div
+                  className={`text-[11px] font-medium uppercase tracking-[0.18em] ${
+                    isDark ? "text-white/38" : "text-[#8a8176]"
+                  }`}
+                >
+                  Telegram Accounts
+                </div>
+
+                <h2
+                  className={`mt-0.5 truncate text-[22px] font-semibold tracking-[-0.04em] ${
+                    isDark ? "text-white" : "text-[#201d19]"
+                  }`}
+                >
+                  Connected Telegram Accounts
+                </h2>
+              </div>
+            </div>
+
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => loadAccounts({ silent: true })}
+                disabled={refreshing}
+                className={luxurySoftButtonClass(isDark)}
+              >
+                {refreshing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                Refresh
+              </button>
+
+              <button
+                type="button"
+                onClick={() => openConnectModal()}
+                className={luxuryPrimaryButtonClass()}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Connect Telegram
+              </button>
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <MiniStat
+              label="Total accounts"
+              value={stats.total}
+              isDark={isDark}
+            />
+
+            <MiniStat
+              label="Connected"
+              value={stats.connected}
+              isDark={isDark}
+              active
+            />
+
+            <MiniStat
+              label="Disconnected"
+              value={stats.disconnected}
+              isDark={isDark}
+            />
+          </div>
+
+          <div
+            className={`overflow-hidden rounded-[24px] border ${
+              isDark
+                ? "border-white/[0.06] bg-[#282a30]"
+                : "border-[#eee4d5] bg-white"
+            }`}
+          >
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[860px] border-collapse">
+                <thead>
+                  <tr
+                    className={
+                      isDark
+                        ? "border-b border-white/[0.05] bg-[#24252b] text-white/42"
+                        : "border-b border-[#eee4d5] bg-[#fbf8f2] text-[#8a8176]"
+                    }
+                  >
+                    <Th>Account</Th>
+                    <Th>Phone Number</Th>
+                    <Th>Status</Th>
+                    <Th>Last Login</Th>
+                    <Th>Last Checked</Th>
+                    <Th align="right">Actions</Th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {checking && accounts.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-5 py-12 text-center">
+                        <div
+                          className={`inline-flex items-center gap-2 text-sm ${
+                            isDark ? "text-white/50" : "text-[#746b61]"
+                          }`}
+                        >
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Loading Telegram accounts...
+                        </div>
+                      </td>
+                    </tr>
+                  ) : accounts.length ? (
+                    accounts.map((account) => (
+                      <AccountRow
+                        key={account._id}
+                        account={account}
+                        isDark={isDark}
+                        busy={actionId === account._id}
+                        onReconnect={() => openConnectModal(account)}
+                        onTest={() => handleTestAccount(account._id)}
+                        onDelete={() => handleDeleteAccount(account._id)}
+                        onSaveLabel={(newLabel) =>
+                          handleUpdateAccountLabel(account._id, newLabel)
+                        }
+                      />
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="px-5 py-12 text-center">
+                        <div className="mx-auto max-w-sm">
+                          <div
+                            className={`mx-auto flex h-12 w-12 items-center justify-center rounded-2xl ${
+                              isDark
+                                ? "bg-white/[0.07] text-white/60"
+                                : "bg-[#eee4d5] text-[#5c5348]"
+                            }`}
+                          >
+                            <Smartphone className="h-5 w-5" />
+                          </div>
+
+                          <div
+                            className={`mt-4 text-sm font-semibold ${
+                              isDark ? "text-white" : "text-[#201d19]"
+                            }`}
+                          >
+                            No Telegram accounts connected
+                          </div>
+
+                          <div
+                            className={`mt-2 text-xs leading-5 ${
+                              isDark ? "text-white/42" : "text-[#746b61]"
+                            }`}
+                          >
+                            Click Connect Telegram to add the first account.
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => openConnectModal()}
+                            className={primaryButtonClass(
+                              "mx-auto mt-5 w-auto",
+                            )}
+                          >
+                            <Plus className="h-4 w-4" />
+                            Connect Telegram
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        {modalOpen && (
+          <TelegramLoginModal
+            isDark={isDark}
+            step={step}
+            loading={loading}
+            phoneNumber={phoneNumber}
+            setPhoneNumber={setPhoneNumber}
+            label={label}
+            setLabel={setLabel}
+            code={code}
+            setCode={setCode}
+            password={password}
+            setPassword={setPassword}
+            onClose={closeModal}
+            onSendCode={handleSendCode}
+            onVerifyCode={handleVerifyCode}
+            onVerifyPassword={handleVerifyPassword}
+            onBackToPhone={() => setStep("phone")}
+            onBackToCode={() => setStep("code")}
+            onDone={closeModal}
+          />
+        )}
+      </div>
+    </Shell>
+  );
+}
+
+function AccountRow({
+  account,
+  isDark,
+  busy,
+  onReconnect,
+  onTest,
+  onDelete,
+  onSaveLabel,
+}) {
+  const connected = account.isConnected && account.status === "connected";
+
+  const [editingLabel, setEditingLabel] = useState(false);
+  const [labelValue, setLabelValue] = useState(account.label || "");
+
+  useEffect(() => {
+    setLabelValue(account.label || "");
+  }, [account.label]);
+
+  async function handleSaveLabel() {
+    await onSaveLabel(labelValue);
+    setEditingLabel(false);
+  }
+
+  function handleCancelEdit() {
+    setLabelValue(account.label || "");
+    setEditingLabel(false);
+  }
+
+  return (
+    <tr
+      className={`border-b last:border-b-0 ${
+        isDark
+          ? "border-white/[0.045] text-white hover:bg-white/[0.03]"
+          : "border-[#eee4d5]/80 text-[#201d19] hover:bg-[#fbf8f2]"
+      }`}
+    >
+      <td className="px-5 py-4">
+        <div className="flex items-center gap-3">
+          <div
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${
+              connected
+                ? isDark
+                  ? "bg-emerald-400/10 text-emerald-300"
+                  : "bg-emerald-50 text-emerald-600"
+                : isDark
+                  ? "bg-white/[0.07] text-white/50"
+                  : "bg-[#eee4d5] text-[#6d6254]"
+            }`}
+          >
+            {connected ? (
+              <Wifi className="h-4 w-4" />
+            ) : (
+              <WifiOff className="h-4 w-4" />
+            )}
+          </div>
+
+          <div className="min-w-0">
+            {editingLabel ? (
+              <div className="flex items-center gap-2">
+                <input
+                  value={labelValue}
+                  onChange={(e) => setLabelValue(e.target.value)}
+                  placeholder="Telegram Account"
+                  disabled={busy}
+                  className={editLabelInputClass(isDark)}
+                />
+
+                <button
+                  type="button"
+                  onClick={handleSaveLabel}
+                  disabled={busy}
+                  title="Save label"
+                  className={iconButtonClass(isDark, "save")}
+                >
+                  {busy ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Check className="h-3.5 w-3.5" />
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  disabled={busy}
+                  title="Cancel edit"
+                  className={iconButtonClass(isDark, "cancel")}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <div className="text-sm font-semibold">
+                  {account.label || "Telegram Account"}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setEditingLabel(true)}
+                  disabled={busy}
+                  title="Edit label"
+                  className={iconButtonClass(isDark)}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+
+            <div
+              className={`mt-1 text-xs ${
+                isDark ? "text-white/38" : "text-[#8a8176]"
+              }`}
+            >
+              ID: {String(account._id || "").slice(-8)}
+            </div>
+          </div>
+        </div>
+      </td>
+
+      <td className="px-5 py-4 text-sm">{account.phoneNumber || "-"}</td>
+
+      <td className="px-5 py-4">
+        <StatusPill
+          status={account.status}
+          connected={connected}
+          isDark={isDark}
+        />
+      </td>
+
+      <td className={`px-5 py-4 text-sm ${mutedTextClass(isDark)}`}>
+        {formatDate(account.lastLoginAt)}
+      </td>
+
+      <td className={`px-5 py-4 text-sm ${mutedTextClass(isDark)}`}>
+        {formatDate(account.lastCheckedAt)}
+      </td>
+
+      <td className="px-5 py-4">
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onReconnect}
+            disabled={busy}
+            className={tinyButtonClass(isDark)}
+          >
+            Reconnect
+          </button>
+
+          <button
+            type="button"
+            onClick={onTest}
+            disabled={busy}
+            className={tinyButtonClass(isDark)}
+          >
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Test"}
+          </button>
+
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={busy}
+            className={`inline-flex h-9 items-center justify-center rounded-xl px-3 text-xs font-medium transition disabled:opacity-60 ${
+              isDark
+                ? "bg-red-400/[0.07] text-red-300 hover:bg-red-400/12"
+                : "bg-red-50 text-red-600 hover:bg-red-100"
+            }`}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function TelegramLoginModal({
+  isDark,
+  step,
+  loading,
+  phoneNumber,
+  setPhoneNumber,
+  label,
+  setLabel,
+  code,
+  setCode,
+  password,
+  setPassword,
+  onClose,
+  onSendCode,
+  onVerifyCode,
+  onVerifyPassword,
+  onBackToPhone,
+  onBackToCode,
+  onDone,
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute inset-0 z-0 bg-black/55 backdrop-blur-sm"
+        aria-label="Close modal backdrop"
+      />
+
+      <div
+        className={`relative z-10 w-full max-w-[430px] overflow-hidden rounded-[30px] shadow-2xl ${
+          isDark ? "bg-[#202127] text-white" : "bg-white text-[#171717]"
+        }`}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={loading}
+          className={`absolute right-4 top-4 z-10 flex h-9 w-9 items-center justify-center rounded-2xl transition ${
+            isDark
+              ? "bg-white/[0.08] text-white/60 hover:bg-white/[0.12]"
+              : "bg-[#f1f5f9] text-[#475569] hover:bg-[#e2e8f0]"
+          } disabled:opacity-50`}
+        >
+          <X className="h-4 w-4" />
+        </button>
+
+        <div className="bg-[#229ED9] px-6 pb-7 pt-8 text-center text-white">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-white/18">
+            <Send className="h-8 w-8" />
+          </div>
+
+          <div className="mt-4 text-xl font-semibold tracking-[-0.03em]">
+            Telegram
+          </div>
+
+          <div className="mt-1 text-sm text-white/75">
+            Admin account connection
+          </div>
+        </div>
+
+        <div className="px-6 py-6">
+          <StepDots step={step} />
+
+          {step === "phone" && (
+            <form onSubmit={onSendCode}>
+              <WidgetTitle
+                title="Sign in to Telegram"
+                text="Enter the phone number for the Telegram account you want to connect."
+                isDark={isDark}
+              />
+
+              <div className="mt-5 space-y-4">
+                <div>
+                  <label className={labelClass(isDark)}>Account label</label>
+                  <input
+                    value={label}
+                    onChange={(e) => setLabel(e.target.value)}
+                    placeholder="Support account"
+                    className={inputClass(isDark)}
+                  />
+                </div>
+
+                <div>
+                  <label className={labelClass(isDark)}>Phone number</label>
+                  <input
+                    value={phoneNumber}
+                    onChange={(e) => setPhoneNumber(e.target.value)}
+                    placeholder="+60123456789"
+                    className={inputClass(isDark)}
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className={telegramButtonClass()}
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Sending code
+                  </>
+                ) : (
+                  <>
+                    <Phone className="h-4 w-4" />
+                    Send Code
+                  </>
+                )}
+              </button>
+            </form>
+          )}
+
+          {step === "code" && (
+            <form onSubmit={onVerifyCode}>
+              <WidgetTitle
+                title="Enter login code"
+                text={`We sent a login code to ${
+                  phoneNumber || "this phone number"
+                }.`}
+                isDark={isDark}
+              />
+
+              <div className="mt-5">
+                <label className={labelClass(isDark)}>Telegram code</label>
+                <input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  placeholder="12345"
+                  inputMode="numeric"
+                  className={`${inputClass(isDark)} text-center tracking-[0.35em]`}
+                />
+              </div>
+
+              <div className="mt-5 grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={onBackToPhone}
+                  disabled={loading}
+                  className={modalSecondaryButtonClass(isDark)}
+                >
+                  Back
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className={telegramButtonClass("mt-0")}
+                >
+                  {loading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ShieldCheck className="h-4 w-4" />
+                  )}
+                  Verify
+                </button>
+              </div>
+            </form>
+          )}
+
+          {step === "password" && (
+            <form onSubmit={onVerifyPassword}>
+              <WidgetTitle
+                title="Two-step verification"
+                text="This Telegram account requires a cloud password."
+                isDark={isDark}
+              />
+
+              <div className="mt-5">
+                <label className={labelClass(isDark)}>2FA password</label>
+                <input
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  type="password"
+                  placeholder="Telegram password"
+                  className={inputClass(isDark)}
+                />
+              </div>
+
+              <div className="mt-5 grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={onBackToCode}
+                  disabled={loading}
+                  className={modalSecondaryButtonClass(isDark)}
+                >
+                  Back
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className={telegramButtonClass("mt-0")}
+                >
+                  {loading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <LockKeyhole className="h-4 w-4" />
+                  )}
+                  Connect
+                </button>
+              </div>
+            </form>
+          )}
+
+          {step === "success" && (
+            <div className="text-center">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/12 text-emerald-500">
+                <CheckCircle2 className="h-8 w-8" />
+              </div>
+
+              <div className="mt-4 text-lg font-semibold">
+                Telegram account connected
+              </div>
+
+              <div
+                className={`mt-2 text-sm leading-6 ${
+                  isDark ? "text-white/45" : "text-[#64748b]"
+                }`}
+              >
+                This account is now available in the admin account list.
+              </div>
+
+              <button
+                type="button"
+                onClick={onDone}
+                className={telegramButtonClass()}
+              >
+                Done
+              </button>
+            </div>
+          )}
+
+          <div
+            className={`mt-5 rounded-2xl px-4 py-3 text-xs leading-5 ${
+              isDark
+                ? "bg-white/[0.06] text-white/42"
+                : "bg-[#f8fafc] text-[#64748b]"
+            }`}
+          >
+            This page connects accounts through your backend Telegram session
+            flow. The session string should never be shown in the browser.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StepDots({ step }) {
+  const steps = ["phone", "code", "password"];
+  const activeIndex =
+    step === "success"
+      ? 3
+      : Math.max(
+          0,
+          steps.findIndex((item) => item === step),
+        );
+
+  return (
+    <div className="mb-5 flex justify-center gap-2">
+      {[0, 1, 2].map((index) => (
+        <span
+          key={index}
+          className={`h-2 rounded-full transition-all ${
+            index <= activeIndex ? "w-6 bg-[#229ED9]" : "w-2 bg-slate-300"
+          }`}
+        />
+      ))}
+    </div>
+  );
+}
+
+function WidgetTitle({ title, text, isDark }) {
+  return (
+    <div className="text-center">
+      <div className="text-lg font-semibold tracking-[-0.03em]">{title}</div>
+      <div
+        className={`mx-auto mt-2 max-w-[320px] text-sm leading-6 ${
+          isDark ? "text-white/45" : "text-[#64748b]"
+        }`}
+      >
+        {text}
+      </div>
+    </div>
+  );
+}
+
+function MiniStat({ label, value, active, isDark }) {
+  return (
+    <div
+      className={`rounded-[22px] border p-4 ${
+        isDark
+          ? "border-white/[0.06] bg-[#282a30] text-white"
+          : "border-[#eee4d5] bg-white text-[#201d19]"
+      }`}
+    >
+      <div className="text-[11px] font-medium uppercase tracking-[0.18em] opacity-45">
+        {label}
+      </div>
+
+      <div className="mt-2 flex items-center gap-2 text-lg font-semibold">
+        {active && <span className="h-2 w-2 rounded-full bg-emerald-400" />}
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function StatusPill({ status, connected, isDark }) {
+  const label = status || "unknown";
+
+  if (connected) {
+    return (
+      <span
+        className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium ${
+          isDark
+            ? "bg-emerald-400/10 text-emerald-300"
+            : "bg-emerald-50 text-emerald-700"
+        }`}
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+        Connected
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium ${
+        isDark ? "bg-white/[0.08] text-white/55" : "bg-[#eee4d5] text-[#6d6254]"
+      }`}
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-current opacity-45" />
+      {label}
+    </span>
+  );
+}
+
+function Th({ children, align = "left" }) {
+  return (
+    <th
+      className={`px-5 py-4 text-${align} text-[11px] font-semibold uppercase tracking-[0.16em]`}
+    >
+      {children}
+    </th>
+  );
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "-";
+
+  return date.toLocaleString();
+}
+
+function mutedTextClass(isDark) {
+  return isDark ? "text-white/45" : "text-[#746b61]";
+}
+
+function labelClass(isDark) {
+  return `mb-2 block text-xs font-medium ${
+    isDark ? "text-white/62" : "text-[#5c5348]"
+  }`;
+}
+
+function inputClass(isDark) {
+  return `min-h-[50px] w-full rounded-2xl border px-4 text-[16px] outline-none transition ${
+    isDark
+      ? "border-white/[0.10] bg-[#292a2f] text-white placeholder:text-white/28 focus:border-[#229ED9]/60 focus:ring-4 focus:ring-[#229ED9]/10"
+      : "border-[#e2e8f0] bg-white text-[#171717] placeholder:text-[#94a3b8] focus:border-[#229ED9] focus:ring-4 focus:ring-[#229ED9]/15"
+  }`;
+}
+
+function editLabelInputClass(isDark) {
+  return `h-9 w-[180px] rounded-xl border px-3 text-sm outline-none transition disabled:opacity-60 ${
+    isDark
+      ? "border-white/[0.10] bg-[#202127] text-white placeholder:text-white/30 focus:border-[#229ED9]/65 focus:ring-4 focus:ring-[#229ED9]/10"
+      : "border-[#e2e8f0] bg-white text-[#171717] placeholder:text-[#94a3b8] focus:border-[#229ED9] focus:ring-4 focus:ring-[#229ED9]/15"
+  }`;
+}
+
+function primaryButtonClass(extra = "") {
+  return `inline-flex items-center justify-center gap-2 rounded-2xl bg-[#d8c49a] px-5 text-sm font-semibold text-[#171717] shadow-[0_16px_35px_rgba(216,196,154,0.14)] transition hover:bg-[#e4d1a9] disabled:cursor-not-allowed disabled:opacity-60 ${extra}`;
+}
+
+function telegramButtonClass(extra = "mt-5") {
+  return `inline-flex min-h-[50px] w-full items-center justify-center gap-2 rounded-2xl bg-[#229ED9] px-5 text-sm font-semibold text-white transition hover:bg-[#1d8fc5] disabled:cursor-not-allowed disabled:opacity-60 ${extra}`;
+}
+
+function tinyButtonClass(isDark) {
+  return `inline-flex h-9 items-center justify-center gap-2 rounded-xl px-3 text-xs font-medium transition disabled:opacity-60 ${
+    isDark
+      ? "bg-white/[0.07] text-white/60 hover:bg-white/[0.10]"
+      : "bg-[#eee4d5] text-[#5c5348] hover:bg-[#e6dac8]"
+  }`;
+}
+
+function iconButtonClass(isDark, type = "default") {
+  if (type === "save") {
+    return `inline-flex h-8 w-8 items-center justify-center rounded-xl transition disabled:opacity-60 ${
+      isDark
+        ? "bg-emerald-400/10 text-emerald-300 hover:bg-emerald-400/15"
+        : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+    }`;
+  }
+
+  if (type === "cancel") {
+    return `inline-flex h-8 w-8 items-center justify-center rounded-xl transition disabled:opacity-60 ${
+      isDark
+        ? "bg-red-400/10 text-red-300 hover:bg-red-400/15"
+        : "bg-red-50 text-red-600 hover:bg-red-100"
+    }`;
+  }
+
+  return `inline-flex h-8 w-8 items-center justify-center rounded-xl transition disabled:opacity-60 ${
+    isDark
+      ? "text-white/55 hover:bg-white/[0.10]"
+      : "text-[#5c5348] hover:bg-[#e6dac8]"
+  }`;
+}
+
+function luxuryPrimaryButtonClass(extra = "") {
+  return `inline-flex min-h-[38px] items-center justify-center gap-2 rounded-[14px] bg-[#d8c49a] px-4 text-[12px] font-semibold text-[#171717] shadow-[0_10px_24px_rgba(216,196,154,0.12)] transition hover:bg-[#e4d1a9] disabled:cursor-not-allowed disabled:opacity-60 ${extra}`;
+}
+
+function luxurySoftButtonClass(isDark) {
+  return `inline-flex min-h-[38px] items-center justify-center gap-2 rounded-[14px] px-4 text-[12px] font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
+    isDark
+      ? "bg-white/[0.06] text-white/58 hover:bg-white/[0.10]"
+      : "bg-white text-[#5c5348] hover:bg-[#f7f2ea]"
+  }`;
+}
+
+function modalSecondaryButtonClass(isDark) {
+  return `inline-flex min-h-[50px] items-center justify-center rounded-2xl px-5 text-sm font-medium transition disabled:opacity-60 ${
+    isDark
+      ? "bg-white/[0.07] text-white/62 hover:bg-white/[0.10]"
+      : "bg-[#f1f5f9] text-[#475569] hover:bg-[#e2e8f0]"
+  }`;
+}
