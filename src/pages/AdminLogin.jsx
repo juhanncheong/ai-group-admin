@@ -21,6 +21,8 @@ const LOGO_IMAGE = "/logo.png";
 export default function AdminLogin() {
   const navigate = useNavigate();
 
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -166,7 +168,7 @@ export default function AdminLogin() {
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         type="email"
-                        autoComplete="username"
+                        autoComplete="off"
                         className="min-h-[58px] w-full rounded-2xl border border-[#decfb8] bg-white px-4 pl-12 text-base font-normal text-[#2f2a24] outline-none transition placeholder:text-[#b5a58f] focus:border-[#b9975f] focus:bg-white focus:ring-4 focus:ring-[#c7a66d]/15"
                       />
                     </div>
@@ -184,8 +186,7 @@ export default function AdminLogin() {
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         type={showPassword ? "text" : "password"}
-                        autoComplete="current-password"
-                        placeholder="Enter password"
+                        autoComplete="off"
                         className="min-h-[58px] w-full rounded-2xl border border-[#decfb8] bg-white px-4 pl-12 pr-14 text-base font-normal text-[#2f2a24] outline-none transition placeholder:text-[#b5a58f] focus:border-[#b9975f] focus:bg-white focus:ring-4 focus:ring-[#c7a66d]/15"
                       />
 
