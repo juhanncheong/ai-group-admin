@@ -8,6 +8,7 @@ import {
   Phone,
   Plus,
   RefreshCw,
+  Search,
   Send,
   ShieldCheck,
   Smartphone,
@@ -54,6 +55,13 @@ function cacheSet(key, data) {
   } catch (_) {}
 }
 
+function normalizeSearch(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .trim();
+}
+
 export default function TelegramConnect() {
   const { theme } = useTheme();
   const isDark = theme === "dark";
@@ -76,12 +84,20 @@ export default function TelegramConnect() {
   const [loading, setLoading] = useState(false);
   const [actionId, setActionId] = useState("");
 
+  const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+
   useEffect(() => {
     loadAccounts({
       silent: accounts.length > 0,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery]);
 
   const stats = useMemo(() => {
     const connected = accounts.filter(
@@ -96,6 +112,39 @@ export default function TelegramConnect() {
       disconnected,
     };
   }, [accounts]);
+
+  const filteredAccounts = useMemo(() => {
+    const keyword = normalizeSearch(searchQuery);
+
+    if (!keyword) return accounts;
+
+    return accounts.filter((account) => {
+      const labelText = normalizeSearch(account.label || "Telegram Account");
+      const phoneText = normalizeSearch(account.phoneNumber);
+      const statusText = normalizeSearch(account.status);
+      const idText = normalizeSearch(String(account._id || "").slice(-8));
+
+      return (
+        labelText.includes(keyword) ||
+        phoneText.includes(keyword) ||
+        statusText.includes(keyword) ||
+        idText.includes(keyword)
+      );
+    });
+  }, [accounts, searchQuery]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredAccounts.length / pageSize));
+
+  const paginatedAccounts = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredAccounts.slice(start, start + pageSize);
+  }, [filteredAccounts, page]);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
 
   async function loadAccounts(options = {}) {
     const silent = options.silent === true;
@@ -357,7 +406,7 @@ export default function TelegramConnect() {
         }`}
       >
         <section className="space-y-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 items-center gap-3">
               <div
                 className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${
@@ -388,29 +437,39 @@ export default function TelegramConnect() {
               </div>
             </div>
 
-            <div className="flex shrink-0 items-center gap-2">
-              <button
-                type="button"
-                onClick={() => loadAccounts({ silent: true })}
-                disabled={refreshing}
-                className={luxurySoftButtonClass(isDark)}
-              >
-                {refreshing ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-3.5 w-3.5" />
-                )}
-                Refresh
-              </button>
+            <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center xl:w-auto">
+              <SmartSearchBar
+                isDark={isDark}
+                value={searchQuery}
+                onChange={setSearchQuery}
+                resultCount={filteredAccounts.length}
+                totalCount={accounts.length}
+              />
 
-              <button
-                type="button"
-                onClick={() => openConnectModal()}
-                className={luxuryPrimaryButtonClass()}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Connect Telegram
-              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => loadAccounts({ silent: true })}
+                  disabled={refreshing}
+                  className={luxurySoftButtonClass(isDark)}
+                >
+                  {refreshing ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  )}
+                  Refresh
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => openConnectModal()}
+                  className={luxuryPrimaryButtonClass()}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Connect Telegram
+                </button>
+              </div>
             </div>
           </div>
 
@@ -475,8 +534,8 @@ export default function TelegramConnect() {
                         </div>
                       </td>
                     </tr>
-                  ) : accounts.length ? (
-                    accounts.map((account) => (
+                  ) : filteredAccounts.length ? (
+                    paginatedAccounts.map((account) => (
                       <AccountRow
                         key={account._id}
                         account={account}
@@ -490,6 +549,50 @@ export default function TelegramConnect() {
                         }
                       />
                     ))
+                  ) : accounts.length && searchQuery.trim() ? (
+                    <tr>
+                      <td colSpan={6} className="px-5 py-12 text-center">
+                        <div className="mx-auto max-w-sm">
+                          <div
+                            className={`mx-auto flex h-12 w-12 items-center justify-center rounded-2xl ${
+                              isDark
+                                ? "bg-white/[0.07] text-white/60"
+                                : "bg-[#eee4d5] text-[#5c5348]"
+                            }`}
+                          >
+                            <Search className="h-5 w-5" />
+                          </div>
+
+                          <div
+                            className={`mt-4 text-sm font-semibold ${
+                              isDark ? "text-white" : "text-[#201d19]"
+                            }`}
+                          >
+                            No matching accounts found
+                          </div>
+
+                          <div
+                            className={`mt-2 text-xs leading-5 ${
+                              isDark ? "text-white/42" : "text-[#746b61]"
+                            }`}
+                          >
+                            Try searching another phone number, label, status,
+                            or account ID.
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => setSearchQuery("")}
+                            className={primaryButtonClass(
+                              "mx-auto mt-5 w-auto",
+                            )}
+                          >
+                            <X className="h-4 w-4" />
+                            Clear Search
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
                   ) : (
                     <tr>
                       <td colSpan={6} className="px-5 py-12 text-center">
@@ -537,6 +640,17 @@ export default function TelegramConnect() {
                 </tbody>
               </table>
             </div>
+
+            {filteredAccounts.length > pageSize && (
+              <LuxuryPagination
+                isDark={isDark}
+                page={page}
+                totalPages={totalPages}
+                totalItems={filteredAccounts.length}
+                pageSize={pageSize}
+                onPageChange={setPage}
+              />
+            )}
           </div>
         </section>
 
@@ -603,10 +717,10 @@ function AccountRow({
           : "border-[#eee4d5]/80 text-[#201d19] hover:bg-[#fbf8f2]"
       }`}
     >
-      <td className="px-5 py-4">
+      <td className="px-5 py-2.5">
         <div className="flex items-center gap-3">
           <div
-            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl ${
               connected
                 ? isDark
                   ? "bg-emerald-400/10 text-emerald-300"
@@ -617,9 +731,9 @@ function AccountRow({
             }`}
           >
             {connected ? (
-              <Wifi className="h-4 w-4" />
+              <Wifi className="h-3.5 w-3.5" />
             ) : (
-              <WifiOff className="h-4 w-4" />
+              <WifiOff className="h-3.5 w-3.5" />
             )}
           </div>
 
@@ -677,7 +791,7 @@ function AccountRow({
             )}
 
             <div
-              className={`mt-1 text-xs ${
+              className={`mt-0.5 text-xs ${
                 isDark ? "text-white/38" : "text-[#8a8176]"
               }`}
             >
@@ -687,9 +801,9 @@ function AccountRow({
         </div>
       </td>
 
-      <td className="px-5 py-4 text-sm">{account.phoneNumber || "-"}</td>
+      <td className="px-5 py-2.5 text-sm">{account.phoneNumber || "-"}</td>
 
-      <td className="px-5 py-4">
+      <td className="px-5 py-2.5">
         <StatusPill
           status={account.status}
           connected={connected}
@@ -697,15 +811,15 @@ function AccountRow({
         />
       </td>
 
-      <td className={`px-5 py-4 text-sm ${mutedTextClass(isDark)}`}>
+      <td className={`px-5 py-2.5 text-sm ${mutedTextClass(isDark)}`}>
         {formatDate(account.lastLoginAt)}
       </td>
 
-      <td className={`px-5 py-4 text-sm ${mutedTextClass(isDark)}`}>
+      <td className={`px-5 py-2.5 text-sm ${mutedTextClass(isDark)}`}>
         {formatDate(account.lastCheckedAt)}
       </td>
 
-      <td className="px-5 py-4">
+      <td className="px-5 py-2.5">
         <div className="flex justify-end gap-2">
           <button
             type="button"
@@ -729,7 +843,7 @@ function AccountRow({
             type="button"
             onClick={onDelete}
             disabled={busy}
-            className={`inline-flex h-9 items-center justify-center rounded-xl px-3 text-xs font-medium transition disabled:opacity-60 ${
+            className={`inline-flex h-8 items-center justify-center rounded-xl px-3 text-xs font-medium transition disabled:opacity-60 ${
               isDark
                 ? "bg-red-400/[0.07] text-red-300 hover:bg-red-400/12"
                 : "bg-red-50 text-red-600 hover:bg-red-100"
@@ -740,6 +854,66 @@ function AccountRow({
         </div>
       </td>
     </tr>
+  );
+}
+
+function SmartSearchBar({ isDark, value, onChange, resultCount, totalCount }) {
+  const hasSearch = value.trim().length > 0;
+
+  return (
+    <div
+      className={`group flex h-[38px] w-full items-center gap-2 rounded-[14px] border px-3 transition sm:w-[330px] lg:w-[380px] ${
+        isDark
+          ? "border-white/[0.07] bg-white/[0.055] text-white focus-within:border-[#d8c49a]/45 focus-within:bg-white/[0.08] focus-within:ring-4 focus-within:ring-[#d8c49a]/5"
+          : "border-[#eee4d5] bg-white text-[#201d19] shadow-[0_10px_24px_rgba(30,25,18,0.035)] focus-within:border-[#d8c49a] focus-within:ring-4 focus-within:ring-[#d8c49a]/15"
+      }`}
+    >
+      <Search
+        className={`h-3.5 w-3.5 shrink-0 transition ${
+          isDark
+            ? "text-white/35 group-focus-within:text-[#d8c49a]"
+            : "text-[#8a8176] group-focus-within:text-[#9b7b3d]"
+        }`}
+      />
+
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Search phone number or label..."
+        className={`h-full min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-[12px] ${
+          isDark
+            ? "text-white placeholder:text-white/30"
+            : "text-[#201d19] placeholder:text-[#9b9287]"
+        }`}
+      />
+
+      {hasSearch && (
+        <div className="flex shrink-0 items-center gap-2">
+          <span
+            className={`hidden rounded-full px-2 py-0.5 text-[10px] font-medium sm:inline-flex ${
+              isDark
+                ? "bg-white/[0.07] text-white/45"
+                : "bg-[#f4efe6] text-[#8a8176]"
+            }`}
+          >
+            {resultCount}/{totalCount}
+          </span>
+
+          <button
+            type="button"
+            onClick={() => onChange("")}
+            className={`flex h-6 w-6 items-center justify-center rounded-lg transition ${
+              isDark
+                ? "text-white/38 hover:bg-white/[0.10] hover:text-white/70"
+                : "text-[#8a8176] hover:bg-[#f4efe6] hover:text-[#201d19]"
+            }`}
+            title="Clear search"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -993,6 +1167,127 @@ function TelegramLoginModal({
   );
 }
 
+function LuxuryPagination({
+  isDark,
+  page,
+  totalPages,
+  totalItems,
+  pageSize,
+  onPageChange,
+}) {
+  const startItem = totalItems === 0 ? 0 : (page - 1) * pageSize + 1;
+  const endItem = Math.min(page * pageSize, totalItems);
+  const pages = getPaginationPages(page, totalPages);
+
+  return (
+    <div
+      className={`flex flex-col gap-3 border-t px-5 py-4 sm:flex-row sm:items-center sm:justify-between ${
+        isDark
+          ? "border-white/[0.05] bg-[#24252b]/70"
+          : "border-[#eee4d5] bg-[#fbf8f2]/80"
+      }`}
+    >
+      <div className={`text-xs ${isDark ? "text-white/42" : "text-[#8a8176]"}`}>
+        Showing{" "}
+        <span className={isDark ? "text-white/70" : "text-[#201d19]"}>
+          {startItem}-{endItem}
+        </span>{" "}
+        of{" "}
+        <span className={isDark ? "text-white/70" : "text-[#201d19]"}>
+          {totalItems}
+        </span>{" "}
+        accounts
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.max(1, page - 1))}
+          disabled={page === 1}
+          className={paginationButtonClass(isDark)}
+        >
+          Prev
+        </button>
+
+        {pages.map((item, index) =>
+          item === "..." ? (
+            <span
+              key={`dots-${index}`}
+              className={`flex h-8 min-w-8 items-center justify-center text-xs ${
+                isDark ? "text-white/35" : "text-[#8a8176]"
+              }`}
+            >
+              ...
+            </span>
+          ) : (
+            <button
+              key={item}
+              type="button"
+              onClick={() => onPageChange(item)}
+              className={paginationButtonClass(isDark, item === page)}
+            >
+              {item}
+            </button>
+          ),
+        )}
+
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.min(totalPages, page + 1))}
+          disabled={page === totalPages}
+          className={paginationButtonClass(isDark)}
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function getPaginationPages(currentPage, totalPages) {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+
+  if (currentPage <= 4) {
+    return [1, 2, 3, 4, 5, "...", totalPages];
+  }
+
+  if (currentPage >= totalPages - 3) {
+    return [
+      1,
+      "...",
+      totalPages - 4,
+      totalPages - 3,
+      totalPages - 2,
+      totalPages - 1,
+      totalPages,
+    ];
+  }
+
+  return [
+    1,
+    "...",
+    currentPage - 1,
+    currentPage,
+    currentPage + 1,
+    "...",
+    totalPages,
+  ];
+}
+
+function paginationButtonClass(isDark, active = false) {
+  if (active) {
+    return "flex h-8 min-w-8 items-center justify-center rounded-xl bg-[#d8c49a] px-3 text-xs font-semibold text-[#171717] shadow-[0_10px_24px_rgba(216,196,154,0.18)] transition";
+  }
+
+  return `flex h-8 min-w-8 items-center justify-center rounded-xl px-3 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${
+    isDark
+      ? "bg-white/[0.06] text-white/58 hover:bg-white/[0.10]"
+      : "bg-white text-[#5c5348] ring-1 ring-[#eee4d5] hover:bg-[#f7f2ea]"
+  }`;
+}
+
 function StepDots({ step }) {
   const steps = ["phone", "code", "password"];
   const activeIndex =
@@ -1086,7 +1381,7 @@ function StatusPill({ status, connected, isDark }) {
 function Th({ children, align = "left" }) {
   return (
     <th
-      className={`px-5 py-4 text-${align} text-[11px] font-semibold uppercase tracking-[0.16em]`}
+      className={`px-5 py-3 text-${align} text-[11px] font-semibold uppercase tracking-[0.16em]`}
     >
       {children}
     </th>
@@ -1138,7 +1433,7 @@ function telegramButtonClass(extra = "mt-5") {
 }
 
 function tinyButtonClass(isDark) {
-  return `inline-flex h-9 items-center justify-center gap-2 rounded-xl px-3 text-xs font-medium transition disabled:opacity-60 ${
+  return `inline-flex h-8 items-center justify-center gap-2 rounded-xl px-3 text-xs font-medium transition disabled:opacity-60 ${
     isDark
       ? "bg-white/[0.07] text-white/60 hover:bg-white/[0.10]"
       : "bg-[#eee4d5] text-[#5c5348] hover:bg-[#e6dac8]"
