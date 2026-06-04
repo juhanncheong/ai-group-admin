@@ -22,6 +22,7 @@ import {
   RefreshCw,
   Search,
   Send,
+  Smile,
   Trash2,
   User,
   Users,
@@ -32,8 +33,11 @@ import { io } from "socket.io-client";
 import Shell from "../components/Shell";
 import { api } from "../api";
 import { useTheme } from "../context/ThemeContext";
+import EmojiPicker from "emoji-picker-react";
+import Lottie from "lottie-react";
+import pako from "pako";
 
-const socket = io("http://localhost:5000", {
+const socket = io("https://valuable-raphaela-jayjay122-5bf3a028.koyeb.app", {
   transports: ["websocket"],
 });
 
@@ -150,11 +154,25 @@ function getMemberInitials(member) {
   return cleaned.slice(0, 2).toUpperCase() || "?";
 }
 
-function getMemberPhotoUrl(chatId, memberId) {
-  const apiBase =
-    api?.defaults?.baseURL?.replace(/\/$/, "") || "http://localhost:5000";
+function getApiBase() {
+  return (
+    api?.defaults?.baseURL?.replace(/\/$/, "") ||
+    "https://valuable-raphaela-jayjay122-5bf3a028.koyeb.app"
+  );
+}
 
-  return `${apiBase}/api/telegram-chats/${chatId}/group/members/${memberId}/photo`;
+function getTelegramMediaPreviewUrl(previewUrl) {
+  if (!previewUrl) return "";
+
+  if (previewUrl.startsWith("http://") || previewUrl.startsWith("https://")) {
+    return previewUrl;
+  }
+
+  return `${getApiBase()}${previewUrl.startsWith("/") ? "" : "/"}${previewUrl}`;
+}
+
+function getMemberPhotoUrl(chatId, memberId) {
+  return `${getApiBase()}/api/telegram-chats/${chatId}/group/members/${memberId}/photo`;
 }
 
 function cacheGet(key) {
@@ -311,6 +329,14 @@ export default function TelegramChats() {
 
   const [newMessage, setNewMessage] = useState("");
   const [editingMessageId, setEditingMessageId] = useState("");
+
+  const [emojiPanelOpen, setEmojiPanelOpen] = useState(false);
+  const [emojiTab, setEmojiTab] = useState("emoji");
+
+  const [telegramGifs, setTelegramGifs] = useState([]);
+  const [telegramStickers, setTelegramStickers] = useState([]);
+  const [loadingTelegramMedia, setLoadingTelegramMedia] = useState(false);
+  const [stickerEmoji, setStickerEmoji] = useState("😂");
 
   const imageInputRef = useRef(null);
 
@@ -1106,6 +1132,128 @@ export default function TelegramChats() {
     }
 
     imageInputRef.current?.click();
+  }
+
+  function getCurrentTelegramAccountId() {
+    return (
+      selectedChat?.telegramAccountId?._id ||
+      selectedChat?.telegramAccountId ||
+      selectedAccountId
+    );
+  }
+
+  async function loadSavedTelegramGifs() {
+    const telegramAccountId = getCurrentTelegramAccountId();
+
+    if (!telegramAccountId) {
+      toast.error("Please select a Telegram account first");
+      return;
+    }
+
+    try {
+      setLoadingTelegramMedia(true);
+
+      const res = await api.get(
+        `/api/telegram-chats/accounts/${telegramAccountId}/gifs/saved`,
+      );
+
+      setTelegramGifs(Array.isArray(res.data?.data) ? res.data.data : []);
+    } catch (err) {
+      console.error("Load Telegram GIFs error:", err);
+      toast.error(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Failed to load Telegram GIFs",
+      );
+    } finally {
+      setLoadingTelegramMedia(false);
+    }
+  }
+
+  async function loadTelegramStickers(emoji = stickerEmoji) {
+    const telegramAccountId = getCurrentTelegramAccountId();
+
+    if (!telegramAccountId) {
+      toast.error("Please select a Telegram account first");
+      return;
+    }
+
+    try {
+      setLoadingTelegramMedia(true);
+
+      const res = await api.get(
+        `/api/telegram-chats/accounts/${telegramAccountId}/stickers?emoji=${encodeURIComponent(
+          emoji || "😂",
+        )}`,
+      );
+
+      setTelegramStickers(Array.isArray(res.data?.data) ? res.data.data : []);
+    } catch (err) {
+      console.error("Load Telegram stickers error:", err);
+      toast.error(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Failed to load Telegram stickers",
+      );
+    } finally {
+      setLoadingTelegramMedia(false);
+    }
+  }
+
+  async function sendPickedTelegramMedia(pickId) {
+    if (!selectedChatId) {
+      toast.error("Please select a chat first");
+      return;
+    }
+
+    if (!pickId) return;
+
+    try {
+      setSending(true);
+
+      await api.post(
+        `/api/telegram-chats/${selectedChatId}/media-picker/${pickId}/send`,
+      );
+
+      setEmojiPanelOpen(false);
+
+      await loadMessages(selectedChatId, true);
+      await loadChats(selectedAccountId, chatMode, { silent: true });
+    } catch (err) {
+      console.error("Send Telegram media error:", err);
+      toast.error(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Failed to send Telegram media",
+      );
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function openEmojiPanel(nextTab = "emoji") {
+    if (!selectedChatId) {
+      toast.error("Please select a chat first");
+      return;
+    }
+
+    setEmojiPanelOpen((current) => {
+      const willOpen = !current || emojiTab !== nextTab;
+
+      if (willOpen) {
+        setEmojiTab(nextTab);
+
+        if (nextTab === "gifs" && telegramGifs.length === 0) {
+          loadSavedTelegramGifs();
+        }
+
+        if (nextTab === "stickers" && telegramStickers.length === 0) {
+          loadTelegramStickers(stickerEmoji);
+        }
+      }
+
+      return willOpen;
+    });
   }
 
   function handleImageSelected(e) {
@@ -2472,6 +2620,53 @@ export default function TelegramChats() {
                         className="hidden"
                         onChange={handleImageSelected}
                       />
+
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => openEmojiPanel("emoji")}
+                          disabled={sending || sendingImage || editingMessageId}
+                          className={`flex h-[50px] w-[50px] shrink-0 items-center justify-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                            isDark
+                              ? "bg-[#292a2f] text-white hover:bg-white/[0.08]"
+                              : "bg-[#f7f2ea] text-[#8d8375] hover:bg-[#efe6d8]"
+                          }`}
+                          title="Emoji, stickers and GIFs"
+                        >
+                          <Smile className="h-5 w-5" />
+                        </button>
+
+                        {emojiPanelOpen && (
+                          <TelegramEmojiMediaPicker
+                            isDark={isDark}
+                            activeTab={emojiTab}
+                            setActiveTab={(tab) => {
+                              setEmojiTab(tab);
+
+                              if (tab === "gifs" && telegramGifs.length === 0) {
+                                loadSavedTelegramGifs();
+                              }
+
+                              if (
+                                tab === "stickers" &&
+                                telegramStickers.length === 0
+                              ) {
+                                loadTelegramStickers(stickerEmoji);
+                              }
+                            }}
+                            newMessage={newMessage}
+                            setNewMessage={setNewMessage}
+                            gifs={telegramGifs}
+                            stickers={telegramStickers}
+                            loading={loadingTelegramMedia}
+                            stickerEmoji={stickerEmoji}
+                            setStickerEmoji={setStickerEmoji}
+                            onLoadStickers={loadTelegramStickers}
+                            onSendPickedMedia={sendPickedTelegramMedia}
+                            onClose={() => setEmojiPanelOpen(false)}
+                          />
+                        )}
+                      </div>
 
                       <textarea
                         ref={messageInputRef}
@@ -4990,7 +5185,8 @@ function ChatAvatar({ isDark, chat, size = "small", active = false }) {
   const [failed, setFailed] = useState(false);
 
   const apiBase =
-    api?.defaults?.baseURL?.replace(/\/$/, "") || "http://localhost:5000";
+    api?.defaults?.baseURL?.replace(/\/$/, "") ||
+    "https://valuable-raphaela-jayjay122-5bf3a028.koyeb.app";
 
   const dimension = size === "large" ? "h-[112px] w-[112px]" : "h-11 w-11";
   const textSize = size === "large" ? "text-[34px]" : "text-[16px]";
@@ -5148,6 +5344,311 @@ function AccountPanel({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function TelegramEmojiMediaPicker({
+  isDark,
+  activeTab,
+  setActiveTab,
+  newMessage,
+  setNewMessage,
+  gifs,
+  stickers,
+  loading,
+  stickerEmoji,
+  setStickerEmoji,
+  onLoadStickers,
+  onSendPickedMedia,
+  onClose,
+}) {
+  return (
+    <div
+      className={`absolute bottom-[60px] left-0 z-50 w-[360px] overflow-hidden rounded-[18px] border shadow-2xl ${
+        isDark
+          ? "border-white/[0.08] bg-[#292a2f]"
+          : "border-[#e8dece] bg-white"
+      }`}
+    >
+      <div
+        className={`flex border-b ${
+          isDark ? "border-white/[0.08]" : "border-[#eee4d5]"
+        }`}
+      >
+        {[
+          { key: "emoji", label: "Emoji" },
+          { key: "stickers", label: "Stickers" },
+          { key: "gifs", label: "GIFs" },
+        ].map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => setActiveTab(tab.key)}
+            className={`h-[48px] flex-1 text-sm font-semibold transition ${
+              activeTab === tab.key
+                ? "border-b-2 border-[#229ED9] text-[#229ED9]"
+                : isDark
+                  ? "text-white/45 hover:text-white"
+                  : "text-[#8d8375] hover:text-[#201d19]"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+
+        <button
+          type="button"
+          onClick={onClose}
+          className={`w-[44px] text-sm ${
+            isDark ? "text-white/45 hover:text-white" : "text-[#8d8375]"
+          }`}
+        >
+          ×
+        </button>
+      </div>
+
+      {activeTab === "emoji" && (
+        <div className="h-[390px] overflow-hidden">
+          <EmojiPicker
+            width="100%"
+            height={390}
+            theme={isDark ? "dark" : "light"}
+            searchDisabled={false}
+            previewConfig={{ showPreview: false }}
+            onEmojiClick={(emojiData) => {
+              setNewMessage((prev) => `${prev}${emojiData.emoji}`);
+            }}
+          />
+        </div>
+      )}
+
+      {activeTab === "stickers" && (
+        <div className="h-[390px] overflow-y-auto p-3">
+          <div className="mb-3 flex gap-2">
+            <input
+              value={stickerEmoji}
+              onChange={(e) => setStickerEmoji(e.target.value)}
+              placeholder="Emoji"
+              className={`min-h-[38px] flex-1 rounded-xl border px-3 text-sm outline-none ${
+                isDark
+                  ? "border-white/[0.08] bg-[#202127] text-white"
+                  : "border-[#eee4d5] bg-[#f7f2ea] text-[#201d19]"
+              }`}
+            />
+
+            <button
+              type="button"
+              onClick={() => onLoadStickers(stickerEmoji)}
+              className="rounded-xl bg-[#229ED9] px-4 text-sm font-semibold text-white"
+            >
+              Search
+            </button>
+          </div>
+
+          {loading ? (
+            <PickerLoading isDark={isDark} />
+          ) : stickers.length === 0 ? (
+            <PickerEmpty isDark={isDark} text="No stickers found" />
+          ) : (
+            <div className="grid grid-cols-4 gap-2">
+              {stickers.map((item) => (
+                <button
+                  key={item.pickId}
+                  type="button"
+                  onClick={() => onSendPickedMedia(item.pickId)}
+                  className={`aspect-square overflow-hidden rounded-xl border p-1 transition hover:scale-[1.03] ${
+                    isDark
+                      ? "border-white/[0.08] bg-[#202127]"
+                      : "border-[#eee4d5] bg-[#f7f2ea]"
+                  }`}
+                >
+                  <TelegramMediaThumb item={item} label="sticker" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === "gifs" && (
+        <div className="h-[390px] overflow-y-auto p-3">
+          {loading ? (
+            <PickerLoading isDark={isDark} />
+          ) : gifs.length === 0 ? (
+            <PickerEmpty isDark={isDark} text="No saved GIFs found" />
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              {gifs.map((item) => (
+                <button
+                  key={item.pickId}
+                  type="button"
+                  onClick={() => onSendPickedMedia(item.pickId)}
+                  className={`aspect-video overflow-hidden rounded-xl border transition hover:scale-[1.02] ${
+                    isDark
+                      ? "border-white/[0.08] bg-[#202127]"
+                      : "border-[#eee4d5] bg-[#f7f2ea]"
+                  }`}
+                >
+                  <TelegramMediaThumb item={item} label="gif" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TelegramMediaThumb({ item, label = "media" }) {
+  const src = getTelegramMediaPreviewUrl(item?.previewUrl);
+  const mimeType = String(item?.mimeType || "").toLowerCase();
+
+  if (!src) {
+    return (
+      <div className="flex h-full w-full items-center justify-center text-xs opacity-50">
+        No preview
+      </div>
+    );
+  }
+
+  // Telegram animated sticker: .tgs
+  if (
+    mimeType.includes("x-tgsticker") ||
+    mimeType.includes("application/x-tgsticker")
+  ) {
+    return <TgsStickerPreview src={src} />;
+  }
+
+  // Telegram video sticker / animated GIF style document
+  if (mimeType.includes("video")) {
+    return (
+      <video
+        src={src}
+        className="h-full w-full object-contain"
+        autoPlay
+        loop
+        muted
+        playsInline
+      />
+    );
+  }
+
+  // Static sticker / GIF / photo
+  if (
+    mimeType.includes("image") ||
+    mimeType.includes("webp") ||
+    mimeType.includes("gif")
+  ) {
+    return (
+      <img src={src} alt={label} className="h-full w-full object-contain" />
+    );
+  }
+
+  // Try image anyway before giving up
+  return (
+    <img
+      src={src}
+      alt={label}
+      className="h-full w-full object-contain"
+      onError={(e) => {
+        e.currentTarget.style.display = "none";
+      }}
+    />
+  );
+}
+
+function TgsStickerPreview({ src }) {
+  const [animationData, setAnimationData] = useState(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadTgs() {
+      try {
+        const res = await fetch(src);
+
+        if (!res.ok) {
+          throw new Error("Failed to load TGS sticker");
+        }
+
+        const arrayBuffer = await res.arrayBuffer();
+        const compressed = new Uint8Array(arrayBuffer);
+
+        // Telegram .tgs files are gzipped Lottie JSON
+        const jsonText = pako.ungzip(compressed, { to: "string" });
+        const json = JSON.parse(jsonText);
+
+        if (!cancelled) {
+          setAnimationData(json);
+        }
+      } catch (err) {
+        console.error("TGS sticker preview error:", err);
+
+        if (!cancelled) {
+          setFailed(true);
+        }
+      }
+    }
+
+    loadTgs();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [src]);
+
+  if (failed) {
+    return (
+      <div className="flex h-full w-full items-center justify-center text-xs opacity-60">
+        sticker
+      </div>
+    );
+  }
+
+  if (!animationData) {
+    return (
+      <div className="flex h-full w-full items-center justify-center text-xs opacity-50">
+        ...
+      </div>
+    );
+  }
+
+  return (
+    <Lottie
+      animationData={animationData}
+      loop
+      autoplay
+      style={{
+        width: "100%",
+        height: "100%",
+      }}
+    />
+  );
+}
+
+function PickerLoading({ isDark }) {
+  return (
+    <div
+      className={`flex h-full items-center justify-center text-sm ${
+        isDark ? "text-white/45" : "text-[#8d8375]"
+      }`}
+    >
+      Loading...
+    </div>
+  );
+}
+
+function PickerEmpty({ isDark, text }) {
+  return (
+    <div
+      className={`flex h-full items-center justify-center text-sm ${
+        isDark ? "text-white/45" : "text-[#8d8375]"
+      }`}
+    >
+      {text}
     </div>
   );
 }
