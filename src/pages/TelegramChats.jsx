@@ -1006,24 +1006,32 @@ export default function TelegramChats() {
     }
   }
 
-  async function loadMessages(chatId = selectedChatId, silent = false) {
+  async function loadMessages(
+    chatId = selectedChatId,
+    silent = false,
+    force = false,
+  ) {
     if (!chatId) return;
 
     const cacheKey = `tg:messages:${chatId}`;
     const cached = cacheGet(cacheKey);
     const hasCache = Array.isArray(cached);
 
-    try {
-      if (hasCache) {
-        setMessages(cached);
-      }
+    if (hasCache) {
+      setMessages(cached);
 
+      if (!force) {
+        return;
+      }
+    }
+
+    try {
       if (!silent && !hasCache) {
         setLoadingMessages(true);
       }
 
       const res = await api.get(
-        `/api/telegram-chats/${chatId}/messages?limit=50`,
+        `/api/telegram-chats/${chatId}/messages?limit=20`,
       );
 
       const list = Array.isArray(res.data?.data) ? res.data.data : [];
@@ -1105,9 +1113,6 @@ export default function TelegramChats() {
 
       setNewMessage("");
       setOpenedHiddenChat(null);
-
-      await loadMessages(selectedChatId, true);
-      await loadChats(selectedAccountId, chatMode, { silent: true });
     } catch (err) {
       console.error("Send Telegram message error:", err);
       toast.error(
@@ -1217,7 +1222,7 @@ export default function TelegramChats() {
 
       setEmojiPanelOpen(false);
 
-      await loadMessages(selectedChatId, true);
+      await loadMessages(selectedChatId, true, true);
       await loadChats(selectedAccountId, chatMode, { silent: true });
     } catch (err) {
       console.error("Send Telegram media error:", err);
@@ -1365,7 +1370,7 @@ export default function TelegramChats() {
       );
 
       closeImagePreview();
-      await loadMessages(selectedChatId, true);
+      await loadMessages(selectedChatId, true, true);
       toast.success("Image sent");
     } catch (err) {
       console.error("Send image error:", err);
@@ -1470,7 +1475,7 @@ export default function TelegramChats() {
       setEditingMessageId("");
       setNewMessage("");
 
-      await loadMessages(selectedChatId, true);
+      await loadMessages(selectedChatId, true, true);
       toast.success("Message edited");
     } catch (err) {
       console.error("Edit Telegram message error:", err);
@@ -2202,7 +2207,7 @@ export default function TelegramChats() {
         cancelEdit();
       }
 
-      await loadMessages(selectedChatId, true);
+      await loadMessages(selectedChatId, true, true);
       toast.success("Message deleted");
     } catch (err) {
       console.error("Delete Telegram message error:", err);
@@ -2228,7 +2233,7 @@ export default function TelegramChats() {
     }
 
     if (selectedChatId) {
-      await loadMessages(selectedChatId, true);
+      await loadMessages(selectedChatId, true, true);
       await loadChatProfile(selectedChatId, true);
       await loadChatPhotos(selectedChatId, true);
       await loadChatLinks(selectedChatId, true);
