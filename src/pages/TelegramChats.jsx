@@ -1848,13 +1848,22 @@ export default function TelegramChats() {
       setMemberProfileOpen(true);
       setSelectedMemberProfile(member);
 
+      // Some basic-group members do not have accessHash.
+      // In that case, open profile using already loaded member data.
+      if (!member.accessHash) {
+        return;
+      }
+
       const res = await api.get(
         `/api/telegram-chats/${selectedChatId}/group/members/${member.id}/profile?accessHash=${encodeURIComponent(
-          member.accessHash || "",
+          member.accessHash,
         )}`,
       );
 
-      setSelectedMemberProfile(res.data?.data || member);
+      setSelectedMemberProfile({
+        ...member,
+        ...(res.data?.data || {}),
+      });
     } catch (err) {
       console.error("Open group member profile error:", err);
       toast.error(
