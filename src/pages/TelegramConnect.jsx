@@ -995,6 +995,19 @@ function TelegramLoginModal({
   onBackToCode,
   onDone,
 }) {
+  const passwordInputRef = useRef(null);
+
+  useEffect(() => {
+    if (step !== "password") return;
+    if (loading) return;
+
+    const focusTimer = setTimeout(() => {
+      passwordInputRef.current?.focus();
+    }, 120);
+
+    return () => clearTimeout(focusTimer);
+  }, [step, loading]);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
       <button
@@ -1135,6 +1148,7 @@ function TelegramLoginModal({
               <div className="mt-5">
                 <label className={labelClass(isDark)}>2FA password</label>
                 <input
+                  ref={passwordInputRef}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   type="password"
