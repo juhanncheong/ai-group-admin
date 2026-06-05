@@ -522,7 +522,7 @@ export default function TelegramConnect() {
             }`}
           >
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1250px] border-collapse">
+              <table className="w-full min-w-[1180px] border-collapse">
                 <thead>
                   <tr
                     className={
@@ -825,7 +825,7 @@ function AccountRow({
         </div>
       </td>
 
-      <td className="px-5 py-2.5 text-sm">{account.phoneNumber || "-"}</td>
+      <td className="px-5 py-2.5 text-xs">{account.phoneNumber || "-"}</td>
 
       <td className="px-5 py-2.5">
         <StatusPill
@@ -835,11 +835,11 @@ function AccountRow({
         />
       </td>
 
-      <td className={`px-5 py-2.5 text-sm ${mutedTextClass(isDark)}`}>
+      <td className={`px-5 py-2.5 text-xs leading-5 ${mutedTextClass(isDark)}`}>
         {formatDate(account.lastLoginAt)}
       </td>
 
-      <td className={`px-5 py-2.5 text-sm ${mutedTextClass(isDark)}`}>
+      <td className={`px-5 py-2.5 text-xs leading-5 ${mutedTextClass(isDark)}`}>
         {formatDate(account.lastCheckedAt)}
       </td>
 
@@ -1730,7 +1730,7 @@ function Th({ children, align = "left" }) {
 }
 
 function DeviceModelCell({ account, isDark, onShowTooltip, onHideTooltip }) {
-  const deviceModel = account.deviceModel || "Not set";
+  const systemVersion = account.systemVersion || "Not set";
 
   function handleEnter(e) {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -1745,11 +1745,11 @@ function DeviceModelCell({ account, isDark, onShowTooltip, onHideTooltip }) {
   }
 
   return (
-    <div className="min-w-[190px]">
+    <div className="min-w-[120px]">
       <div
         onMouseEnter={handleEnter}
         onMouseLeave={onHideTooltip}
-        className={`inline-flex max-w-[210px] items-center gap-2 transition ${
+        className={`inline-flex max-w-[135px] items-center gap-2 transition ${
           isDark
             ? "text-white hover:border-[#d8c49a]/35 hover:bg-white/[0.07]"
             : "text-[#201d19] hover:border-[#d8c49a] hover:bg-white"
@@ -1757,11 +1757,11 @@ function DeviceModelCell({ account, isDark, onShowTooltip, onHideTooltip }) {
       >
         <span
           className={`h-2 w-2 shrink-0 rounded-full ${
-            account.deviceModel ? "bg-emerald-400" : "bg-amber-400"
+            account.systemVersion ? "bg-emerald-400" : "bg-amber-400"
           }`}
         />
 
-        <span className="truncate font-mono text-xs">{deviceModel}</span>
+        <span className="truncate font-mono text-[11px]">{systemVersion}</span>
 
         <button
           type="button"
@@ -1770,7 +1770,7 @@ function DeviceModelCell({ account, isDark, onShowTooltip, onHideTooltip }) {
               ? "bg-white/[0.08] text-white/45 hover:bg-[#d8c49a]/15 hover:text-[#d8c49a]"
               : "bg-white text-[#8a8176] ring-1 ring-[#eee4d5] hover:text-[#9b7b3d]"
           }`}
-          aria-label="Device model details"
+          aria-label="Device details"
         >
           <Info className="h-3.5 w-3.5" />
         </button>
