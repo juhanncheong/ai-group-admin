@@ -158,6 +158,23 @@ function getMemberInitials(member) {
   return cleaned.slice(0, 2).toUpperCase() || "?";
 }
 
+function formatMemberStatus(member) {
+  const status = String(member?.onlineStatus || "").trim();
+
+  if (!status || status === "unknown") {
+    return "last seen recently";
+  }
+
+  if (status === "recently") return "last seen recently";
+  if (status === "online") return "online";
+  if (status === "offline") return "offline";
+  if (status === "last_week") return "last seen last week";
+  if (status === "last_month") return "last seen last month";
+  if (status === "long_time_ago") return "last seen a long time ago";
+
+  return status;
+}
+
 function getApiBase() {
   return (
     api?.defaults?.baseURL?.replace(/\/$/, "") ||
@@ -1843,23 +1860,41 @@ export default function TelegramChats() {
   }
 
   async function openGroupMemberProfile(member) {
-    if (!selectedChatId || !member?.id) return;
+    const memberId = member?.id || member?.userId || member?.fromId;
+
+    if (!selectedChatId || !memberId) return;
+
+    const knownMember = groupMembers.find(
+      (item) => String(item.id) === String(memberId),
+    );
+
+    const baseMember = {
+      ...(knownMember || {}),
+      ...(member || {}),
+      id: String(memberId),
+      accessHash: member?.accessHash || knownMember?.accessHash || "",
+      hasPhoto: Boolean(member?.hasPhoto ?? knownMember?.hasPhoto),
+      firstName: member?.firstName || knownMember?.firstName || "",
+      lastName: member?.lastName || knownMember?.lastName || "",
+      username: member?.username || knownMember?.username || "",
+      phone: member?.phone || knownMember?.phone || "",
+    };
 
     try {
       setLoadingMemberProfile(true);
       setMemberProfileOpen(true);
-      setSelectedMemberProfile(member);
+      setSelectedMemberProfile(baseMember);
 
-      const accessHashQuery = member.accessHash
-        ? `?accessHash=${encodeURIComponent(member.accessHash)}`
+      const accessHashQuery = baseMember.accessHash
+        ? `?accessHash=${encodeURIComponent(baseMember.accessHash)}`
         : "";
 
       const res = await api.get(
-        `/api/telegram-chats/${selectedChatId}/group/members/${member.id}/profile${accessHashQuery}`,
+        `/api/telegram-chats/${selectedChatId}/group/members/${baseMember.id}/profile${accessHashQuery}`,
       );
 
       setSelectedMemberProfile({
-        ...member,
+        ...baseMember,
         ...(res.data?.data || {}),
       });
     } catch (err) {
@@ -1873,7 +1908,6 @@ export default function TelegramChats() {
       setLoadingMemberProfile(false);
     }
   }
-
   async function messageGroupMember(member) {
     if (!selectedChatId || !member?.id) return;
 
@@ -3638,7 +3672,7 @@ function MemberProfileDrawer({
               >
                 {member?.hasPhoto ? (
                   <img
-                    src={getMemberPhotoUrl(chatId, member.id)}
+                    src={getMemberPhotoUrl(chatId, member)}
                     alt=""
                     className="absolute inset-0 z-[2] h-full w-full object-cover"
                     onError={(e) => {
@@ -3659,7 +3693,7 @@ function MemberProfileDrawer({
                   isDark ? "text-white/40" : "text-[#8d8375]"
                 }`}
               >
-                {member?.onlineStatus || "unknown"}
+                {formatMemberStatus(member)}
               </div>
 
               {member?.username && (
@@ -3814,7 +3848,7 @@ function MessageBubble({
 
           {selectedChat?.type === "group" && message?.sender?.id ? (
             <img
-              src={getMemberPhotoUrl(chatId, message.sender.id)}
+              src={getMemberPhotoUrl(chatId, message.sender)}
               alt=""
               className="absolute inset-0 z-[2] h-full w-full rounded-full object-cover"
               onError={(e) => {
