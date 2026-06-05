@@ -390,6 +390,8 @@ export default function TelegramChats() {
   });
 
   const [messages, setMessages] = useState([]);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(true);
 
   const [newMessage, setNewMessage] = useState("");
   const [editingMessageId, setEditingMessageId] = useState("");
@@ -558,6 +560,8 @@ export default function TelegramChats() {
 
     setEditingMessageId("");
     setNewMessage("");
+    setHasMoreMessages(true);
+    setLoadingOlderMessages(false);
 
     const cachedMessages = cacheGet(`tg:messages:${selectedChatId}`);
 
@@ -1135,12 +1139,10 @@ export default function TelegramChats() {
     const cached = cacheGet(cacheKey);
     const hasCache = Array.isArray(cached);
 
-    if (hasCache) {
+    if (hasCache && !force) {
       setMessages(cached);
-
-      if (!force) {
-        return;
-      }
+      setHasMoreMessages(cached.length >= 20);
+      return;
     }
 
     try {
@@ -1158,6 +1160,7 @@ export default function TelegramChats() {
 
       if (chatId === selectedChatId || !selectedChatId) {
         setMessages(list);
+        setHasMoreMessages(list.length >= 20);
       }
 
       const latest = list[list.length - 1];
@@ -1195,6 +1198,87 @@ export default function TelegramChats() {
       }
     } finally {
       if (!silent) setLoadingMessages(false);
+    }
+  }
+
+  async function loadOlderMessages() {
+    if (!selectedChatId || loadingOlderMessages || !hasMoreMessages) return;
+
+    const oldestMessage = messages.find((item) => item?.id);
+
+    if (!oldestMessage?.id) {
+      setHasMoreMessages(false);
+      return;
+    }
+
+    const container = messagesContainerRef.current;
+    const previousScrollHeight = container?.scrollHeight || 0;
+    const previousScrollTop = container?.scrollTop || 0;
+
+    try {
+      setLoadingOlderMessages(true);
+
+      const res = await api.get(
+        `/api/telegram-chats/${selectedChatId}/messages?limit=20&offsetId=${encodeURIComponent(
+          oldestMessage.id,
+        )}`,
+      );
+
+      const olderList = Array.isArray(res.data?.data) ? res.data.data : [];
+
+      if (olderList.length === 0) {
+        setHasMoreMessages(false);
+        return;
+      }
+
+      setMessages((prev) => {
+        const existingIds = new Set(prev.map((item) => String(item.id)));
+
+        const onlyNewOlder = olderList.filter(
+          (item) => item?.id && !existingIds.has(String(item.id)),
+        );
+
+        if (onlyNewOlder.length === 0) {
+          setHasMoreMessages(false);
+          return prev;
+        }
+
+        const next = [...onlyNewOlder, ...prev];
+
+        cacheSet(`tg:messages:${selectedChatId}`, next);
+
+        if (olderList.length < 20) {
+          setHasMoreMessages(false);
+        }
+
+        return next;
+      });
+
+      requestAnimationFrame(() => {
+        const nextContainer = messagesContainerRef.current;
+        if (!nextContainer) return;
+
+        const nextScrollHeight = nextContainer.scrollHeight;
+        nextContainer.scrollTop =
+          nextScrollHeight - previousScrollHeight + previousScrollTop;
+      });
+    } catch (err) {
+      console.error("Load older Telegram messages error:", err);
+      toast.error(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Failed to load older messages",
+      );
+    } finally {
+      setLoadingOlderMessages(false);
+    }
+  }
+
+  function handleMessagesScroll(e) {
+    const el = e.currentTarget;
+
+    if (el.scrollTop <= 80) {
+      loadOlderMessages();
     }
   }
 
@@ -2803,6 +2887,7 @@ export default function TelegramChats() {
 
                   <div
                     ref={messagesContainerRef}
+                    onScroll={handleMessagesScroll}
                     className={`min-h-0 flex-1 overflow-y-auto px-5 py-5 ${
                       isDark ? "bg-[#202127]" : "bg-[#f4efe6]"
                     }`}
