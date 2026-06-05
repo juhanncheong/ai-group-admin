@@ -176,8 +176,12 @@ function getTelegramMediaPreviewUrl(previewUrl) {
   return `${getApiBase()}${previewUrl.startsWith("/") ? "" : "/"}${previewUrl}`;
 }
 
-function getMemberPhotoUrl(chatId, memberId) {
-  return `${getApiBase()}/api/telegram-chats/${chatId}/group/members/${memberId}/photo`;
+function getMemberPhotoUrl(chatId, member) {
+  if (!chatId || !member?.id || !member?.accessHash) return "";
+
+  return `${getApiBase()}/api/telegram-chats/${chatId}/group/members/${member.id}/photo?accessHash=${encodeURIComponent(
+    member.accessHash,
+  )}`;
 }
 
 function cacheGet(key) {
@@ -454,11 +458,6 @@ export default function TelegramChats() {
     else setInviteLink("");
 
     loadChatProfile(selectedChatId, true);
-
-    const current = chats.find((item) => item._id === selectedChatId);
-    if (current?.type === "group") {
-      loadGroupMembers(selectedChatId, true);
-    }
   }, [selectedChatId]);
 
   useEffect(() => {
@@ -2603,6 +2602,10 @@ export default function TelegramChats() {
                           loadChatProfile(selectedChatId, true);
                           loadChatPhotos(selectedChatId, true);
                           loadChatLinks(selectedChatId, true);
+
+                          if (selectedChat?.type === "group") {
+                            loadGroupMembers(selectedChatId, true);
+                          }
                         }}
                         className={iconButton(isDark)}
                       >
