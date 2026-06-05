@@ -203,6 +203,36 @@ function getMemberPhotoUrl(chatId, member) {
   return `${getApiBase()}/api/telegram-chats/${chatId}/group/members/${member.id}/photo${accessHash}`;
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function enrichMessagesWithMembers(messageList, members) {
+  if (!Array.isArray(messageList) || !Array.isArray(members)) {
+    return messageList;
+  }
+
+  const memberMap = new Map(
+    members.map((member) => [String(member.id), member]),
+  );
+
+  return messageList.map((message) => {
+    const senderId = message?.sender?.id || message?.fromId;
+    const member = memberMap.get(String(senderId));
+
+    if (!member) return message;
+
+    return {
+      ...message,
+      sender: {
+        ...(message.sender || {}),
+        ...member,
+        id: String(member.id),
+      },
+    };
+  });
+}
+
 function cacheGet(key) {
   try {
     const raw = localStorage.getItem(key);
@@ -278,6 +308,12 @@ export default function TelegramChats() {
     const chatId = getRememberedValue("tg:selectedChatId", "");
     if (!chatId) return [];
     return cacheGet(`tg:groupMembers:${chatId}`) || [];
+  });
+
+  const [memberPhotoMap, setMemberPhotoMap] = useState({});
+  const memberPhotoQueueRef = useRef({
+    running: false,
+    token: 0,
   });
 
   const [loadingGroupMembers, setLoadingGroupMembers] = useState(false);
@@ -477,7 +513,17 @@ export default function TelegramChats() {
     else setInviteLink("");
 
     loadChatProfile(selectedChatId, true);
-  }, [selectedChatId]);
+
+    const clickedChat =
+      chats.find((item) => item._id === selectedChatId) ||
+      (openedHiddenChat && openedHiddenChat._id === selectedChatId
+        ? openedHiddenChat
+        : null);
+
+    if (clickedChat?.type === "group") {
+      loadGroupMembers(selectedChatId, true);
+    }
+  }, [selectedChatId, chats, openedHiddenChat]);
 
   useEffect(() => {
     if (!selectedAccountId) return;
@@ -1721,6 +1767,63 @@ export default function TelegramChats() {
     }
   }
 
+  async function queueMemberPhotoLoading(chatId, members = []) {
+    if (!chatId || !Array.isArray(members) || members.length === 0) return;
+
+    const token = Date.now();
+    memberPhotoQueueRef.current.token = token;
+
+    if (memberPhotoQueueRef.current.running) {
+      return;
+    }
+
+    memberPhotoQueueRef.current.running = true;
+
+    try {
+      const photoMembers = members
+        .filter((member) => member?.id && member?.hasPhoto)
+        .slice(0, 30); // safety limit, change to 50 if needed
+
+      for (const member of photoMembers) {
+        if (memberPhotoQueueRef.current.token !== token) {
+          break;
+        }
+
+        const photoKey = `${chatId}:${member.id}`;
+
+        if (memberPhotoMap[photoKey]) {
+          continue;
+        }
+
+        const url = getMemberPhotoUrl(chatId, member);
+
+        if (!url) continue;
+
+        await new Promise((resolve) => {
+          const img = new window.Image();
+
+          img.onload = () => {
+            setMemberPhotoMap((prev) => ({
+              ...prev,
+              [photoKey]: url,
+            }));
+            resolve();
+          };
+
+          img.onerror = () => {
+            resolve();
+          };
+
+          img.src = url;
+        });
+
+        await sleep(500); // one photo every 0.5 second
+      }
+    } finally {
+      memberPhotoQueueRef.current.running = false;
+    }
+  }
+
   async function loadGroupMembers(chatId = selectedChatId, silent = false) {
     if (!chatId) return;
 
@@ -1731,6 +1834,8 @@ export default function TelegramChats() {
     try {
       if (hasCache) {
         setGroupMembers(cached);
+        setMessages((prev) => enrichMessagesWithMembers(prev, cached));
+        queueMemberPhotoLoading(chatId, cached);
       }
 
       if (!silent && !hasCache) {
@@ -1744,6 +1849,8 @@ export default function TelegramChats() {
 
       if (chatId === selectedChatId) {
         setGroupMembers(list);
+        setMessages((prev) => enrichMessagesWithMembers(prev, list));
+        queueMemberPhotoLoading(chatId, list);
       }
     } catch (err) {
       console.error("Load group members error:", err);
@@ -2340,6 +2447,10 @@ export default function TelegramChats() {
       await loadChatProfile(selectedChatId, true);
       await loadChatPhotos(selectedChatId, true);
       await loadChatLinks(selectedChatId, true);
+
+      if (selectedChat?.type === "group") {
+        await loadGroupMembers(selectedChatId, true);
+      }
     }
   }
 
@@ -4435,11 +4546,10 @@ function ManageMembersPanel({
                       }),
                     }}
                   >
-                    {member.hasPhoto ? (
+                    {memberPhotoMap[`${chat?._id}:${member.id}`] ? (
                       <img
-                        src={getMemberPhotoUrl(chat?._id, member)}
+                        src={memberPhotoMap[`${chat?._id}:${member.id}`]}
                         alt=""
-                        loading="lazy"
                         className="absolute inset-0 z-[2] h-full w-full object-cover"
                         onError={(e) => {
                           e.currentTarget.style.display = "none";
