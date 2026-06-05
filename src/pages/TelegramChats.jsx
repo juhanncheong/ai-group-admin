@@ -286,6 +286,7 @@ export default function TelegramChats() {
   const messagesEndRef = useRef(null);
   const messageInputRef = useRef(null);
   const messagesContainerRef = useRef(null);
+  const shouldScrollToBottomRef = useRef(false);
   const [mediaPanel, setMediaPanel] = useState("");
 
   const [profileOpen, setProfileOpen] = useState(false);
@@ -562,6 +563,7 @@ export default function TelegramChats() {
     setNewMessage("");
     setHasMoreMessages(true);
     setLoadingOlderMessages(false);
+    shouldScrollToBottomRef.current = true;
 
     const cachedMessages = cacheGet(`tg:messages:${selectedChatId}`);
 
@@ -700,6 +702,9 @@ export default function TelegramChats() {
   ]);
 
   useLayoutEffect(() => {
+    if (!shouldScrollToBottomRef.current) return;
+
+    shouldScrollToBottomRef.current = false;
     scrollToBottomInstant();
   }, [messages.length, selectedChatId]);
 
@@ -1230,6 +1235,7 @@ export default function TelegramChats() {
         setHasMoreMessages(false);
         return;
       }
+      shouldScrollToBottomRef.current = false;
 
       setMessages((prev) => {
         const existingIds = new Set(prev.map((item) => String(item.id)));
