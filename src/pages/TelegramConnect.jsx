@@ -1728,12 +1728,8 @@ function NetworkIpCell({ account, isDark, onShowTooltip, onHideTooltip }) {
   return (
     <div className="min-w-[190px]">
       <div
-        onMouseEnter={handleEnter}
-        onMouseLeave={onHideTooltip}
         className={`inline-flex max-w-[210px] items-center gap-2 transition ${
-          isDark
-            ? "text-white hover:border-[#d8c49a]/35 hover:bg-white/[0.07]"
-            : "text-[#201d19] hover:border-[#d8c49a] hover:bg-white"
+          isDark ? "text-white" : "text-[#201d19]"
         }`}
       >
         <span
@@ -1752,6 +1748,8 @@ function NetworkIpCell({ account, isDark, onShowTooltip, onHideTooltip }) {
 
         <button
           type="button"
+          onMouseEnter={handleEnter}
+          onMouseLeave={onHideTooltip}
           className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition ${
             isDark
               ? "bg-white/[0.08] text-white/45 hover:bg-[#d8c49a]/15 hover:text-[#d8c49a]"
@@ -1901,12 +1899,8 @@ function DeviceModelCell({ account, isDark, onShowTooltip, onHideTooltip }) {
   return (
     <div className="min-w-[120px]">
       <div
-        onMouseEnter={handleEnter}
-        onMouseLeave={onHideTooltip}
         className={`inline-flex max-w-[135px] items-center gap-2 transition ${
-          isDark
-            ? "text-white hover:border-[#d8c49a]/35 hover:bg-white/[0.07]"
-            : "text-[#201d19] hover:border-[#d8c49a] hover:bg-white"
+          isDark ? "text-white" : "text-[#201d19]"
         }`}
       >
         <span
@@ -1919,6 +1913,8 @@ function DeviceModelCell({ account, isDark, onShowTooltip, onHideTooltip }) {
 
         <button
           type="button"
+          onMouseEnter={handleEnter}
+          onMouseLeave={onHideTooltip}
           className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition ${
             isDark
               ? "bg-white/[0.08] text-white/45 hover:bg-[#d8c49a]/15 hover:text-[#d8c49a]"
