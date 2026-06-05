@@ -69,6 +69,8 @@ export default function NetworkProfiles() {
   const [refreshing, setRefreshing] = useState(false);
   const [actionId, setActionId] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
 
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
@@ -78,6 +80,10 @@ export default function NetworkProfiles() {
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery]);
 
   const filteredProfiles = useMemo(() => {
     const keyword = normalizeSearch(searchQuery);
@@ -105,6 +111,19 @@ export default function NetworkProfiles() {
       return text.includes(keyword);
     });
   }, [profiles, searchQuery]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredProfiles.length / pageSize));
+
+  const paginatedProfiles = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredProfiles.slice(start, start + pageSize);
+  }, [filteredProfiles, page]);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
 
   async function loadData(options = {}) {
     const silent = options.silent === true;
@@ -419,7 +438,7 @@ export default function NetworkProfiles() {
             }`}
           >
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1320px] border-collapse">
+              <table className="w-full min-w-[1400px] border-collapse">
                 <thead>
                   <tr
                     className={
@@ -428,6 +447,7 @@ export default function NetworkProfiles() {
                         : "border-b border-[#eee4d5] bg-[#fbf8f2] text-[#8a8176]"
                     }
                   >
+                    <Th>No.</Th>
                     <Th>Profile</Th>
                     <Th>Proxy Address</Th>
                     <Th>Detected IP</Th>
@@ -442,7 +462,7 @@ export default function NetworkProfiles() {
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={8} className="px-5 py-12 text-center">
+                      <td colSpan={9} className="px-5 py-12 text-center">
                         <div
                           className={`inline-flex items-center gap-2 text-sm ${
                             isDark ? "text-white/50" : "text-[#746b61]"
@@ -454,9 +474,10 @@ export default function NetworkProfiles() {
                       </td>
                     </tr>
                   ) : filteredProfiles.length ? (
-                    filteredProfiles.map((profile) => (
+                    paginatedProfiles.map((profile, index) => (
                       <ProfileRow
                         key={profile._id}
+                        rowNumber={(page - 1) * pageSize + index + 1}
                         profile={profile}
                         isDark={isDark}
                         busy={actionId === profile._id}
@@ -469,7 +490,7 @@ export default function NetworkProfiles() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={8} className="px-5 py-12 text-center">
+                      <td colSpan={9} className="px-5 py-12 text-center">
                         <EmptyState
                           isDark={isDark}
                           onImport={() => {
@@ -483,6 +504,18 @@ export default function NetworkProfiles() {
                 </tbody>
               </table>
             </div>
+
+            {filteredProfiles.length > pageSize && (
+              <LuxuryPagination
+                isDark={isDark}
+                page={page}
+                totalPages={totalPages}
+                totalItems={filteredProfiles.length}
+                pageSize={pageSize}
+                itemLabel="profiles"
+                onPageChange={setPage}
+              />
+            )}
           </div>
         </section>
 
@@ -630,6 +663,7 @@ function InfoStrip({ isDark, isSuperAdmin }) {
 }
 
 function ProfileRow({
+  rowNumber,
   profile,
   isDark,
   busy,
@@ -649,6 +683,18 @@ function ProfileRow({
           : "border-[#eee4d5]/80 text-[#201d19] hover:bg-[#fbf8f2]"
       }`}
     >
+      <td className="px-5 py-3">
+        <div
+          className={`inline-flex h-8 min-w-8 items-center justify-center rounded-xl px-2 text-xs font-semibold ${
+            isDark
+              ? "bg-white/[0.06] text-white/50"
+              : "bg-[#f4efe6] text-[#746b61]"
+          }`}
+        >
+          {rowNumber}
+        </div>
+      </td>
+
       <td className="px-5 py-3">
         <div className="text-sm font-semibold">
           {profile.name || "Network Profile"}
@@ -1105,6 +1151,128 @@ function StatusPill({ status, isDark }) {
       {clean}
     </span>
   );
+}
+
+function LuxuryPagination({
+  isDark,
+  page,
+  totalPages,
+  totalItems,
+  pageSize,
+  itemLabel = "items",
+  onPageChange,
+}) {
+  const startItem = totalItems === 0 ? 0 : (page - 1) * pageSize + 1;
+  const endItem = Math.min(page * pageSize, totalItems);
+  const pages = getPaginationPages(page, totalPages);
+
+  return (
+    <div
+      className={`flex flex-col gap-3 border-t px-5 py-4 sm:flex-row sm:items-center sm:justify-between ${
+        isDark
+          ? "border-white/[0.05] bg-[#24252b]/70"
+          : "border-[#eee4d5] bg-[#fbf8f2]/80"
+      }`}
+    >
+      <div className={`text-xs ${isDark ? "text-white/42" : "text-[#8a8176]"}`}>
+        Showing{" "}
+        <span className={isDark ? "text-white/70" : "text-[#201d19]"}>
+          {startItem}-{endItem}
+        </span>{" "}
+        of{" "}
+        <span className={isDark ? "text-white/70" : "text-[#201d19]"}>
+          {totalItems}
+        </span>{" "}
+        {itemLabel}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.max(1, page - 1))}
+          disabled={page === 1}
+          className={paginationButtonClass(isDark)}
+        >
+          Prev
+        </button>
+
+        {pages.map((item, index) =>
+          item === "..." ? (
+            <span
+              key={`dots-${index}`}
+              className={`flex h-8 min-w-8 items-center justify-center text-xs ${
+                isDark ? "text-white/35" : "text-[#8a8176]"
+              }`}
+            >
+              ...
+            </span>
+          ) : (
+            <button
+              key={item}
+              type="button"
+              onClick={() => onPageChange(item)}
+              className={paginationButtonClass(isDark, item === page)}
+            >
+              {item}
+            </button>
+          ),
+        )}
+
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.min(totalPages, page + 1))}
+          disabled={page === totalPages}
+          className={paginationButtonClass(isDark)}
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function getPaginationPages(currentPage, totalPages) {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+
+  if (currentPage <= 4) {
+    return [1, 2, 3, 4, 5, "...", totalPages];
+  }
+
+  if (currentPage >= totalPages - 3) {
+    return [
+      1,
+      "...",
+      totalPages - 4,
+      totalPages - 3,
+      totalPages - 2,
+      totalPages - 1,
+      totalPages,
+    ];
+  }
+
+  return [
+    1,
+    "...",
+    currentPage - 1,
+    currentPage,
+    currentPage + 1,
+    "...",
+    totalPages,
+  ];
+}
+
+function paginationButtonClass(isDark, active = false) {
+  if (active) {
+    return "flex h-8 min-w-8 items-center justify-center rounded-xl bg-[#d8c49a] px-3 text-xs font-semibold text-[#171717] shadow-[0_10px_24px_rgba(216,196,154,0.18)] transition";
+  }
+
+  return `flex h-8 min-w-8 items-center justify-center rounded-xl px-3 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${
+    isDark
+      ? "bg-white/[0.06] text-white/58 hover:bg-white/[0.10]"
+      : "bg-white text-[#5c5348] ring-1 ring-[#eee4d5] hover:bg-[#f7f2ea]"
+  }`;
 }
 
 function Field({ isDark, label, children }) {
