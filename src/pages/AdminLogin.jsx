@@ -6,7 +6,7 @@ import {
   EyeOff,
   Loader2,
   LockKeyhole,
-  Mail,
+  User,
   ShieldCheck,
   Sparkles,
   Star,
@@ -21,7 +21,7 @@ const LOGO_IMAGE = "/logo.png";
 export default function AdminLogin() {
   const navigate = useNavigate();
 
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -29,12 +29,12 @@ export default function AdminLogin() {
   async function handleLogin(e) {
     e.preventDefault();
 
-    const cleanEmail = String(email || "")
+    const cleanUsername = String(username || "")
       .trim()
       .toLowerCase();
 
-    if (!cleanEmail || !password) {
-      toast.error("Email and password are required");
+    if (!cleanUsername || !password) {
+      toast.error("Username and password are required");
       return;
     }
 
@@ -47,7 +47,7 @@ export default function AdminLogin() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          email: cleanEmail,
+          username: cleanUsername,
           password,
         }),
       });
@@ -65,7 +65,7 @@ export default function AdminLogin() {
       localStorage.setItem("admin_token", data.token);
       localStorage.setItem("admin_profile", JSON.stringify(data.admin || {}));
 
-      toast.success("Welcome back to Starfish");
+      toast.success("Welcome back to Seahorse");
       navigate("/admin/telegram-connect", { replace: true });
     } catch (err) {
       console.error("[AdminLogin] error:", err);
@@ -158,17 +158,18 @@ export default function AdminLogin() {
                 <form onSubmit={handleLogin} className="space-y-5">
                   <div>
                     <label className="mb-2 block text-sm font-normal text-[#5d5144]">
-                      Admin email
+                      Admin username
                     </label>
 
                     <div className="relative">
-                      <Mail className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#a08c6d]" />
+                      <User className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#a08c6d]" />
 
                       <input
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        type="email"
-                        autoComplete="off"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        type="text"
+                        autoComplete="username"
+                        placeholder="Enter username"
                         className="min-h-[58px] w-full rounded-2xl border border-[#decfb8] bg-white px-4 pl-12 text-base font-normal text-[#2f2a24] outline-none transition placeholder:text-[#b5a58f] focus:border-[#b9975f] focus:bg-white focus:ring-4 focus:ring-[#c7a66d]/15"
                       />
                     </div>

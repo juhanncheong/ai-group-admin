@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Check,
   CheckCircle2,
+  Info,
   Loader2,
   LockKeyhole,
   Pencil,
@@ -119,16 +120,30 @@ export default function TelegramConnect() {
     if (!keyword) return accounts;
 
     return accounts.filter((account) => {
+      const profile = account.networkProfileId || account.networkProfile || {};
+
       const labelText = normalizeSearch(account.label || "Telegram Account");
       const phoneText = normalizeSearch(account.phoneNumber);
       const statusText = normalizeSearch(account.status);
       const idText = normalizeSearch(String(account._id || "").slice(-8));
+      const ipText = normalizeSearch(
+        profile.host || profile.proxyAddress || "",
+      );
+      const portText = normalizeSearch(profile.port || "");
+      const countryText = normalizeSearch(
+        profile.country || profile.region || "",
+      );
+      const cityText = normalizeSearch(profile.city || "");
 
       return (
         labelText.includes(keyword) ||
         phoneText.includes(keyword) ||
         statusText.includes(keyword) ||
-        idText.includes(keyword)
+        idText.includes(keyword) ||
+        ipText.includes(keyword) ||
+        portText.includes(keyword) ||
+        countryText.includes(keyword) ||
+        cityText.includes(keyword)
       );
     });
   }, [accounts, searchQuery]);
@@ -502,7 +517,7 @@ export default function TelegramConnect() {
             }`}
           >
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[860px] border-collapse">
+              <table className="w-full min-w-[1080px] border-collapse">
                 <thead>
                   <tr
                     className={
@@ -516,14 +531,15 @@ export default function TelegramConnect() {
                     <Th>Status</Th>
                     <Th>Last Login</Th>
                     <Th>Last Checked</Th>
-                    <Th align="right">Actions</Th>
+                    <Th>Network IP</Th>
+                    <Th>Actions</Th>
                   </tr>
                 </thead>
 
                 <tbody>
                   {checking && accounts.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-5 py-12 text-center">
+                      <td colSpan={7} className="px-5 py-12 text-center">
                         <div
                           className={`inline-flex items-center gap-2 text-sm ${
                             isDark ? "text-white/50" : "text-[#746b61]"
@@ -551,7 +567,7 @@ export default function TelegramConnect() {
                     ))
                   ) : accounts.length && searchQuery.trim() ? (
                     <tr>
-                      <td colSpan={6} className="px-5 py-12 text-center">
+                      <td colSpan={7} className="px-5 py-12 text-center">
                         <div className="mx-auto max-w-sm">
                           <div
                             className={`mx-auto flex h-12 w-12 items-center justify-center rounded-2xl ${
@@ -595,7 +611,7 @@ export default function TelegramConnect() {
                     </tr>
                   ) : (
                     <tr>
-                      <td colSpan={6} className="px-5 py-12 text-center">
+                      <td colSpan={7} className="px-5 py-12 text-center">
                         <div className="mx-auto max-w-sm">
                           <div
                             className={`mx-auto flex h-12 w-12 items-center justify-center rounded-2xl ${
@@ -694,6 +710,7 @@ function AccountRow({
 
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelValue, setLabelValue] = useState(account.label || "");
+  const [networkTooltip, setNetworkTooltip] = useState(null);
 
   useEffect(() => {
     setLabelValue(account.label || "");
@@ -817,6 +834,23 @@ function AccountRow({
 
       <td className={`px-5 py-2.5 text-sm ${mutedTextClass(isDark)}`}>
         {formatDate(account.lastCheckedAt)}
+      </td>
+
+      <td className="px-5 py-2.5">
+        <NetworkIpCell
+          account={account}
+          isDark={isDark}
+          onShowTooltip={setNetworkTooltip}
+          onHideTooltip={() => setNetworkTooltip(null)}
+        />
+
+        {networkTooltip && (
+          <NetworkInfoBubble
+            profile={networkTooltip.profile}
+            isDark={isDark}
+            position={networkTooltip.position}
+          />
+        )}
       </td>
 
       <td className="px-5 py-2.5">
@@ -1378,6 +1412,192 @@ function StatusPill({ status, connected, isDark }) {
   );
 }
 
+function NetworkIpCell({ account, isDark, onShowTooltip, onHideTooltip }) {
+  const profile = account.networkProfileId || account.networkProfile || null;
+
+  if (!profile) {
+    return (
+      <div className="min-w-[170px]">
+        <div
+          className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${
+            isDark
+              ? "bg-white/[0.06] text-white/35"
+              : "bg-[#f4efe6] text-[#8a8176]"
+          }`}
+        >
+          No IP assigned
+        </div>
+      </div>
+    );
+  }
+
+  const host = profile.host || profile.proxyAddress || "";
+  const port = profile.port || "";
+  const fullAddress = host && port ? `${host}:${port}` : host || "Assigned";
+
+  function handleEnter(e) {
+    const rect = e.currentTarget.getBoundingClientRect();
+
+    onShowTooltip({
+      profile,
+      position: {
+        top: rect.bottom + 10,
+        left: Math.min(rect.left, window.innerWidth - 340),
+      },
+    });
+  }
+
+  return (
+    <div className="min-w-[190px]">
+      <div
+        onMouseEnter={handleEnter}
+        onMouseLeave={onHideTooltip}
+        className={`inline-flex max-w-[210px] items-center gap-2 rounded-2xl border px-3 py-2 transition ${
+          isDark
+            ? "border-white/[0.08] bg-white/[0.045] text-white hover:border-[#d8c49a]/35 hover:bg-white/[0.07]"
+            : "border-[#eee4d5] bg-[#fbf8f2] text-[#201d19] hover:border-[#d8c49a] hover:bg-white"
+        }`}
+      >
+        <span
+          className={`h-2 w-2 shrink-0 rounded-full ${
+            profile.status === "assigned"
+              ? "bg-emerald-400"
+              : profile.status === "reserved"
+                ? "bg-amber-400"
+                : profile.status === "disabled"
+                  ? "bg-red-400"
+                  : "bg-sky-400"
+          }`}
+        />
+
+        <span className="truncate font-mono text-xs font-semibold">
+          {fullAddress}
+        </span>
+
+        <button
+          type="button"
+          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition ${
+            isDark
+              ? "bg-white/[0.08] text-white/45 hover:bg-[#d8c49a]/15 hover:text-[#d8c49a]"
+              : "bg-white text-[#8a8176] ring-1 ring-[#eee4d5] hover:text-[#9b7b3d]"
+          }`}
+          aria-label="Network profile details"
+        >
+          <Info className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function NetworkInfoBubble({ profile, isDark, position }) {
+  const rows = [
+    ["Profile", profile.name || "Network Profile"],
+    ["Type", profile.type || "socks5"],
+    ["Provider", profile.provider || "webshare"],
+    [
+      "Address",
+      profile.host && profile.port ? `${profile.host}:${profile.port}` : "-",
+    ],
+    ["Username", profile.username || "-"],
+    ["Location", profile.city || profile.country || profile.region || "-"],
+    ["Status", profile.status || "-"],
+    ["Last tested", formatDate(profile.lastTestedAt)],
+  ];
+
+  if (profile.lastError) {
+    rows.push(["Last error", profile.lastError]);
+  }
+
+  return (
+    <div
+      className={`fixed z-[9999] w-[320px] rounded-[22px] border p-4 text-left shadow-2xl backdrop-blur-xl ${
+        isDark
+          ? "border-white/[0.10] bg-[#1f2025]/95 text-white shadow-black/35"
+          : "border-[#eee4d5] bg-white/95 text-[#201d19] shadow-[0_22px_60px_rgba(30,25,18,0.16)]"
+      }`}
+      style={{
+        top: position?.top || 0,
+        left: position?.left || 0,
+      }}
+    >
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <div
+            className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${
+              isDark ? "text-[#d8c49a]" : "text-[#9b7b3d]"
+            }`}
+          >
+            Assigned Network
+          </div>
+
+          <div className="mt-1 font-mono text-sm font-semibold">
+            {profile.host}:{profile.port}
+          </div>
+        </div>
+
+        <span
+          className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+            profile.status === "assigned"
+              ? isDark
+                ? "bg-emerald-400/10 text-emerald-300"
+                : "bg-emerald-50 text-emerald-700"
+              : profile.status === "reserved"
+                ? isDark
+                  ? "bg-amber-400/10 text-amber-300"
+                  : "bg-amber-50 text-amber-700"
+                : profile.status === "disabled"
+                  ? isDark
+                    ? "bg-red-400/10 text-red-300"
+                    : "bg-red-50 text-red-700"
+                  : isDark
+                    ? "bg-sky-400/10 text-sky-300"
+                    : "bg-sky-50 text-sky-700"
+          }`}
+        >
+          {profile.status || "unknown"}
+        </span>
+      </div>
+
+      <div
+        className={`h-px w-full ${isDark ? "bg-white/[0.08]" : "bg-[#eee4d5]"}`}
+      />
+
+      <div className="mt-3 space-y-2.5">
+        {rows.map(([label, value]) => (
+          <div key={label} className="grid grid-cols-[88px_1fr] gap-3">
+            <div
+              className={`text-[11px] ${
+                isDark ? "text-white/35" : "text-[#8a8176]"
+              }`}
+            >
+              {label}
+            </div>
+
+            <div
+              className={`break-words text-[12px] font-medium ${
+                label === "Address" ? "font-mono" : ""
+              } ${isDark ? "text-white/72" : "text-[#201d19]"}`}
+            >
+              {value}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div
+        className={`mt-4 rounded-2xl px-3 py-2 text-[11px] leading-5 ${
+          isDark
+            ? "bg-white/[0.055] text-white/38"
+            : "bg-[#f8fafc] text-[#64748b]"
+        }`}
+      >
+        This is the fixed network profile assigned to this Telegram account.
+      </div>
+    </div>
+  );
+}
+
 function Th({ children, align = "left" }) {
   return (
     <th
@@ -1425,7 +1645,7 @@ function editLabelInputClass(isDark) {
 }
 
 function primaryButtonClass(extra = "") {
-  return `inline-flex items-center justify-center gap-2 rounded-2xl bg-[#d8c49a] px-5 text-sm font-semibold text-[#171717] shadow-[0_16px_35px_rgba(216,196,154,0.14)] transition hover:bg-[#e4d1a9] disabled:cursor-not-allowed disabled:opacity-60 ${extra}`;
+  return `inline-flex min-h-[50px] items-center justify-center gap-2 rounded-2xl bg-[#d8c49a] px-5 text-sm font-semibold text-[#171717] shadow-[0_16px_35px_rgba(216,196,154,0.14)] transition hover:bg-[#e4d1a9] disabled:cursor-not-allowed disabled:opacity-60 ${extra}`;
 }
 
 function telegramButtonClass(extra = "mt-5") {

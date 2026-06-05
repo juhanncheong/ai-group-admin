@@ -8,6 +8,7 @@ import {
   Moon,
   ScrollText,
   Send,
+  Network,
   Settings,
   Sparkles,
   Star,
@@ -28,6 +29,8 @@ const TAB_LABELS = {
   "/admin/message-logs": "Message Logs",
   "/admin/telegram-scripts": "Telegram Scripts",
   "/admin/dashboard": "Dashboard",
+  "/admin/network-profiles": "Network Profiles",
+  "/admin/settings": "Settings",
 };
 
 const luxury = {
@@ -252,6 +255,14 @@ export default function Shell({ title = "Dashboard", children }) {
 
               <SideLink
                 colors={c}
+                to="/admin/network-profiles"
+                icon={<Network className="h-4 w-4 shrink-0" />}
+              >
+                Network Profiles
+              </SideLink>
+
+              <SideLink
+                colors={c}
                 to="/admin/telegram-groups"
                 icon={<Users className="h-4 w-4 shrink-0" />}
               >
@@ -288,6 +299,16 @@ export default function Shell({ title = "Dashboard", children }) {
                 icon={<ScrollText className="h-4 w-4 shrink-0" />}
               >
                 Telegram Scripts
+              </SideLink>
+            </SidebarSection>
+
+            <SidebarSection title="Account" colors={c}>
+              <SideLink
+                colors={c}
+                to="/admin/settings"
+                icon={<Settings className="h-4 w-4 shrink-0" />}
+              >
+                Settings
               </SideLink>
             </SidebarSection>
           </nav>

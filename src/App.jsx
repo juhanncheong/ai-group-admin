@@ -18,6 +18,8 @@ import MessageLogs from "./pages/MessageLogs";
 import AiPromptPage from "./pages/AiPromptPage";
 import TelegramScripts from "./pages/TelegramScripts";
 import AdminDashboard from "./pages/AdminDashboard";
+import NetworkProfiles from "./pages/NetworkProfiles";
+import AdminSettings from "./pages/AdminSettings";
 
 const ADMIN_INACTIVITY_LIMIT = 60 * 60 * 1000;
 
@@ -157,6 +159,24 @@ export default function App() {
           element={
             <RequireAdmin>
               <AdminDashboard />
+            </RequireAdmin>
+          }
+        />
+
+        <Route
+          path="/admin/network-profiles"
+          element={
+            <RequireAdmin>
+              <NetworkProfiles />
+            </RequireAdmin>
+          }
+        />
+
+        <Route
+          path="/admin/settings"
+          element={
+            <RequireAdmin>
+              <AdminSettings />
             </RequireAdmin>
           }
         />
