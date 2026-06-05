@@ -177,11 +177,13 @@ function getTelegramMediaPreviewUrl(previewUrl) {
 }
 
 function getMemberPhotoUrl(chatId, member) {
-  if (!chatId || !member?.id || !member?.accessHash) return "";
+  if (!chatId || !member?.id) return "";
 
-  return `${getApiBase()}/api/telegram-chats/${chatId}/group/members/${member.id}/photo?accessHash=${encodeURIComponent(
-    member.accessHash,
-  )}`;
+  const accessHash = member.accessHash
+    ? `?accessHash=${encodeURIComponent(member.accessHash)}`
+    : "";
+
+  return `${getApiBase()}/api/telegram-chats/${chatId}/group/members/${member.id}/photo${accessHash}`;
 }
 
 function cacheGet(key) {
