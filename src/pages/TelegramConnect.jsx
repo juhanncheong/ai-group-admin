@@ -540,10 +540,10 @@ export default function TelegramConnect() {
                     <Th>Account</Th>
                     <Th>Phone Number</Th>
                     <Th>Status</Th>
-                    <Th>Last Login</Th>
-                    <Th>Last Checked</Th>
                     <Th>Device Model</Th>
                     <Th>Network IP</Th>
+                    <Th>Last Login</Th>
+                    <Th>Last Checked</Th>
                     <Th>Actions</Th>
                   </tr>
                 </thead>
@@ -941,14 +941,6 @@ function AccountRow({
         />
       </td>
 
-      <td className={`px-5 py-2.5 text-xs leading-5 ${mutedTextClass(isDark)}`}>
-        {formatDate(account.lastLoginAt)}
-      </td>
-
-      <td className={`px-5 py-2.5 text-xs leading-5 ${mutedTextClass(isDark)}`}>
-        {formatDate(account.lastCheckedAt)}
-      </td>
-
       <td className="px-5 py-2.5">
         <DeviceModelCell
           account={account}
@@ -981,6 +973,14 @@ function AccountRow({
             position={networkTooltip.position}
           />
         )}
+      </td>
+
+      <td className={`px-5 py-2.5 text-xs leading-5 ${mutedTextClass(isDark)}`}>
+        {formatDate(account.lastLoginAt)}
+      </td>
+
+      <td className={`px-5 py-2.5 text-xs leading-5 ${mutedTextClass(isDark)}`}>
+        {formatDate(account.lastCheckedAt)}
       </td>
 
       <td className="px-5 py-2.5">
@@ -1715,12 +1715,18 @@ function NetworkIpCell({ account, isDark, onShowTooltip, onHideTooltip }) {
 
   function handleEnter(e) {
     const rect = e.currentTarget.getBoundingClientRect();
+    const bubbleWidth = 320;
+    const gap = 12;
+
+    const showOnLeft = rect.right + gap + bubbleWidth > window.innerWidth;
 
     onShowTooltip({
       profile,
       position: {
-        top: rect.bottom + 10,
-        left: Math.min(rect.left, window.innerWidth - 340),
+        top: Math.max(12, rect.top - 12),
+        left: showOnLeft
+          ? Math.max(12, rect.left - bubbleWidth - gap)
+          : rect.right + gap,
       },
     });
   }
@@ -1886,12 +1892,18 @@ function DeviceModelCell({ account, isDark, onShowTooltip, onHideTooltip }) {
 
   function handleEnter(e) {
     const rect = e.currentTarget.getBoundingClientRect();
+    const bubbleWidth = 320;
+    const gap = 12;
+
+    const showOnLeft = rect.right + gap + bubbleWidth > window.innerWidth;
 
     onShowTooltip({
       account,
       position: {
-        top: rect.bottom + 10,
-        left: Math.min(rect.left, window.innerWidth - 340),
+        top: Math.max(12, rect.top - 12),
+        left: showOnLeft
+          ? Math.max(12, rect.left - bubbleWidth - gap)
+          : rect.right + gap,
       },
     });
   }
