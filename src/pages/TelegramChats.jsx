@@ -1802,7 +1802,10 @@ export default function TelegramChats() {
     }
   }
 
-  async function removeGroupMember(userId) {
+  async function removeGroupMember(member) {
+    const userId = member?.id;
+    const accessHash = member?.accessHash || "";
+
     if (!selectedChatId || !userId) return;
 
     const yes = window.confirm("Remove this member from group?");
@@ -1812,11 +1815,13 @@ export default function TelegramChats() {
       setGroupAction(`remove:${userId}`);
 
       await api.delete(
-        `/api/telegram-chats/${selectedChatId}/group/members/${userId}`,
+        `/api/telegram-chats/${selectedChatId}/group/members/${userId}?accessHash=${encodeURIComponent(
+          accessHash,
+        )}`,
       );
 
       const next = groupMembers.filter(
-        (member) => String(member.id) !== String(userId),
+        (item) => String(item.id) !== String(userId),
       );
 
       setGroupMembers(next);
@@ -4370,17 +4375,17 @@ function ManageMembersPanel({
             {members.map((member) => (
               <div
                 key={member.id}
-                className={`flex items-center justify-between gap-3 rounded-2xl px-3 py-2 ${
-                  isDark ? "bg-white/[0.05]" : "bg-[#f7f2ea]"
+                className={`flex items-center justify-between gap-3 px-3 py-2 ${
+                  isDark ? "hover:bg-white/[0.04]" : "hover:bg-[#f7f2ea]"
                 }`}
               >
                 <button
                   type="button"
                   onClick={() => onOpenMemberProfile?.(member)}
-                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-2xl text-left"
+                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left"
                 >
                   <div
-                    className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full text-xs font-bold text-white"
+                    className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full text-sm font-bold text-white"
                     style={{
                       background: getSenderAvatarBackground({
                         sender: member,
@@ -4392,8 +4397,8 @@ function ManageMembersPanel({
                       <img
                         src={getMemberPhotoUrl(chat?._id, member)}
                         alt=""
-                        className="absolute inset-0 z-[2] h-full w-full object-cover"
                         loading="lazy"
+                        className="absolute inset-0 z-[2] h-full w-full object-cover"
                         onError={(e) => {
                           e.currentTarget.style.display = "none";
                         }}
@@ -4405,33 +4410,51 @@ function ManageMembersPanel({
                     </span>
                   </div>
 
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold">
-                      {getMemberDisplayName(member)}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <div className="truncate text-[15px] font-semibold">
+                        {getMemberDisplayName(member)}
+                      </div>
+
+                      {(member.role === "owner" || member.role === "admin") && (
+                        <span
+                          className={`shrink-0 rounded-full px-2 py-[1px] text-[11px] font-medium ${
+                            member.role === "owner"
+                              ? "bg-purple-100 text-purple-500"
+                              : "bg-blue-100 text-[#229ED9]"
+                          }`}
+                        >
+                          {member.role}
+                        </span>
+                      )}
                     </div>
 
                     <div
-                      className={`truncate text-xs ${
+                      className={`truncate text-[13px] ${
                         isDark ? "text-white/35" : "text-[#8d8375]"
                       }`}
                     >
-                      {member.username ? `@${member.username}` : "member"}
+                      {member.username
+                        ? `@${member.username}`
+                        : "last seen recently"}
                     </div>
                   </div>
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => onRemoveGroupMember(member.id)}
-                  disabled={groupAction === `remove:${member.id}`}
-                  className="text-red-500 disabled:opacity-50"
-                >
-                  {groupAction === `remove:${member.id}` ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Trash2 className="h-4 w-4" />
-                  )}
-                </button>
+                {member.canRemove && (
+                  <button
+                    type="button"
+                    onClick={() => onRemoveGroupMember(member)}
+                    disabled={groupAction === `remove:${member.id}`}
+                    className="shrink-0 text-red-500 disabled:opacity-50"
+                  >
+                    {groupAction === `remove:${member.id}` ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                  </button>
+                )}
               </div>
             ))}
           </div>
