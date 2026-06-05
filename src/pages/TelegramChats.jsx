@@ -356,6 +356,7 @@ export default function TelegramChats() {
   const [loadingChats, setLoadingChats] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [syncingAll, setSyncingAll] = useState(false);
   const [sending, setSending] = useState(false);
   const [messageActionId, setMessageActionId] = useState("");
 
@@ -869,6 +870,54 @@ export default function TelegramChats() {
       );
     } finally {
       setSyncing(false);
+    }
+  }
+
+  async function syncAllChats() {
+    try {
+      setSyncingAll(true);
+
+      const res = await api.post(
+        "/api/telegram-chats/sync-all?limit=100&concurrency=3",
+      );
+
+      const syncedAccounts = Number(res.data?.syncedAccounts || 0);
+      const failedAccounts = Number(res.data?.failedAccounts || 0);
+      const totalSavedChats = Number(res.data?.totalSavedChats || 0);
+
+      if (failedAccounts > 0) {
+        toast.warning(
+          `Sync all completed: ${syncedAccounts} accounts synced, ${failedAccounts} failed`,
+        );
+      } else {
+        toast.success(
+          `All accounts synced: ${syncedAccounts} accounts, ${totalSavedChats} chats`,
+        );
+      }
+
+      await loadAccounts({
+        silent: true,
+      });
+
+      if (selectedAccountId) {
+        localStorage.removeItem(`tg:chats:${selectedAccountId}:active`);
+        localStorage.removeItem(`tg:chats:${selectedAccountId}:archived`);
+        localStorage.removeItem(`tg:chats:${selectedAccountId}:saved`);
+
+        await loadChats(selectedAccountId, chatMode, {
+          silent: true,
+        });
+      }
+    } catch (err) {
+      console.error("Sync all chats error:", err);
+
+      toast.error(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Failed to sync all Telegram accounts",
+      );
+    } finally {
+      setSyncingAll(false);
     }
   }
 
@@ -2348,7 +2397,7 @@ export default function TelegramChats() {
                     />
                   </button>
 
-                  <div className="mt-2 grid grid-cols-3 gap-2">
+                  <div className="mt-2 grid grid-cols-4 gap-2">
                     <button
                       type="button"
                       onClick={refreshAll}
@@ -2371,6 +2420,20 @@ export default function TelegramChats() {
                         <RefreshCw className="h-3.5 w-3.5" />
                       )}
                       Sync
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={syncAllChats}
+                      disabled={syncingAll || loadingAccounts}
+                      className={primarySmallButton()}
+                    >
+                      {syncingAll ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      )}
+                      All
                     </button>
 
                     <button
