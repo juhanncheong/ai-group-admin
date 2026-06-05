@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   CheckCircle2,
@@ -130,10 +130,11 @@ export default function TelegramConnect() {
         profile.host || profile.proxyAddress || "",
       );
       const portText = normalizeSearch(profile.port || "");
-      const countryText = normalizeSearch(
-        profile.country || profile.region || "",
-      );
       const cityText = normalizeSearch(profile.city || "");
+
+      const deviceModelText = normalizeSearch(account.deviceModel || "");
+      const systemVersionText = normalizeSearch(account.systemVersion || "");
+      const appVersionText = normalizeSearch(account.appVersion || "");
 
       return (
         labelText.includes(keyword) ||
@@ -142,8 +143,10 @@ export default function TelegramConnect() {
         idText.includes(keyword) ||
         ipText.includes(keyword) ||
         portText.includes(keyword) ||
-        countryText.includes(keyword) ||
-        cityText.includes(keyword)
+        cityText.includes(keyword) ||
+        deviceModelText.includes(keyword) ||
+        systemVersionText.includes(keyword) ||
+        appVersionText.includes(keyword)
       );
     });
   }, [accounts, searchQuery]);
@@ -258,16 +261,18 @@ export default function TelegramConnect() {
     }
   }
 
-  async function handleVerifyCode(e) {
-    e.preventDefault();
+  async function handleVerifyCode(e, codeOverride = "") {
+    if (e?.preventDefault) e.preventDefault();
 
     const cleanPhone = String(phoneNumber || "").trim();
-    const cleanCode = String(code || "").trim();
+    const cleanCode = String(codeOverride || code || "").trim();
 
-    if (!cleanPhone || !cleanCode) {
-      toast.error("Phone number and code are required");
+    if (!cleanPhone || cleanCode.length !== 5) {
+      toast.error("Phone number and 5-digit code are required");
       return;
     }
+
+    if (loading) return;
 
     setLoading(true);
 
@@ -517,7 +522,7 @@ export default function TelegramConnect() {
             }`}
           >
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1080px] border-collapse">
+              <table className="w-full min-w-[1250px] border-collapse">
                 <thead>
                   <tr
                     className={
@@ -531,6 +536,7 @@ export default function TelegramConnect() {
                     <Th>Status</Th>
                     <Th>Last Login</Th>
                     <Th>Last Checked</Th>
+                    <Th>Device Model</Th>
                     <Th>Network IP</Th>
                     <Th>Actions</Th>
                   </tr>
@@ -539,7 +545,7 @@ export default function TelegramConnect() {
                 <tbody>
                   {checking && accounts.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-5 py-12 text-center">
+                      <td colSpan={8} className="px-5 py-12 text-center">
                         <div
                           className={`inline-flex items-center gap-2 text-sm ${
                             isDark ? "text-white/50" : "text-[#746b61]"
@@ -567,7 +573,7 @@ export default function TelegramConnect() {
                     ))
                   ) : accounts.length && searchQuery.trim() ? (
                     <tr>
-                      <td colSpan={7} className="px-5 py-12 text-center">
+                      <td colSpan={8} className="px-5 py-12 text-center">
                         <div className="mx-auto max-w-sm">
                           <div
                             className={`mx-auto flex h-12 w-12 items-center justify-center rounded-2xl ${
@@ -611,7 +617,7 @@ export default function TelegramConnect() {
                     </tr>
                   ) : (
                     <tr>
-                      <td colSpan={7} className="px-5 py-12 text-center">
+                      <td colSpan={8} className="px-5 py-12 text-center">
                         <div className="mx-auto max-w-sm">
                           <div
                             className={`mx-auto flex h-12 w-12 items-center justify-center rounded-2xl ${
@@ -711,6 +717,7 @@ function AccountRow({
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelValue, setLabelValue] = useState(account.label || "");
   const [networkTooltip, setNetworkTooltip] = useState(null);
+  const [deviceTooltip, setDeviceTooltip] = useState(null);
 
   useEffect(() => {
     setLabelValue(account.label || "");
@@ -834,6 +841,23 @@ function AccountRow({
 
       <td className={`px-5 py-2.5 text-sm ${mutedTextClass(isDark)}`}>
         {formatDate(account.lastCheckedAt)}
+      </td>
+
+      <td className="px-5 py-2.5">
+        <DeviceModelCell
+          account={account}
+          isDark={isDark}
+          onShowTooltip={setDeviceTooltip}
+          onHideTooltip={() => setDeviceTooltip(null)}
+        />
+
+        {deviceTooltip && (
+          <DeviceInfoBubble
+            account={deviceTooltip.account}
+            isDark={isDark}
+            position={deviceTooltip.position}
+          />
+        )}
       </td>
 
       <td className="px-5 py-2.5">
@@ -1077,36 +1101,24 @@ function TelegramLoginModal({
 
               <div className="mt-5">
                 <label className={labelClass(isDark)}>Telegram code</label>
-                <input
+
+                <TelegramCodeBoxes
                   value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  placeholder="12345"
-                  inputMode="numeric"
-                  className={`${inputClass(isDark)} text-center tracking-[0.35em]`}
+                  setValue={setCode}
+                  isDark={isDark}
+                  loading={loading}
+                  onComplete={(finalCode) => onVerifyCode(null, finalCode)}
                 />
               </div>
 
-              <div className="mt-5 grid grid-cols-2 gap-3">
+              <div className="mt-5">
                 <button
                   type="button"
                   onClick={onBackToPhone}
                   disabled={loading}
-                  className={modalSecondaryButtonClass(isDark)}
+                  className={`${modalSecondaryButtonClass(isDark)} w-full`}
                 >
                   Back
-                </button>
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className={telegramButtonClass("mt-0")}
-                >
-                  {loading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <ShieldCheck className="h-4 w-4" />
-                  )}
-                  Verify
                 </button>
               </div>
             </form>
@@ -1197,6 +1209,104 @@ function TelegramLoginModal({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function TelegramCodeBoxes({ value, setValue, isDark, loading, onComplete }) {
+  const inputRef = useRef(null);
+  const submittedRef = useRef("");
+
+  useEffect(() => {
+    const focusTimer = setTimeout(() => {
+      inputRef.current?.focus();
+    }, 120);
+
+    return () => clearTimeout(focusTimer);
+  }, []);
+
+  useEffect(() => {
+    if (!loading) {
+      const focusTimer = setTimeout(() => {
+        inputRef.current?.focus();
+      }, 80);
+
+      return () => clearTimeout(focusTimer);
+    }
+  }, [loading]);
+
+  function handleChange(e) {
+    if (loading) return;
+
+    const next = e.target.value.replace(/\D/g, "").slice(0, 5);
+
+    setValue(next);
+
+    if (next.length < 5) {
+      submittedRef.current = "";
+    }
+
+    if (next.length === 5 && submittedRef.current !== next) {
+      submittedRef.current = next;
+
+      setTimeout(() => {
+        onComplete(next);
+      }, 120);
+    }
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === "Backspace") {
+      submittedRef.current = "";
+    }
+  }
+
+  function focusInput() {
+    inputRef.current?.focus();
+  }
+
+  const digits = Array.from({ length: 5 }, (_, index) => value[index] || "");
+
+  return (
+    <div onClick={focusInput} className="relative">
+      <input
+        ref={inputRef}
+        type="tel"
+        value={value}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        inputMode="numeric"
+        autoComplete="one-time-code"
+        maxLength={5}
+        className="absolute left-0 top-0 h-full w-full cursor-text opacity-0"
+      />
+
+      <div className="pointer-events-none grid grid-cols-5 gap-2">
+        {digits.map((digit, index) => {
+          const active =
+            value.length === index || (value.length === 5 && index === 4);
+
+          return (
+            <div
+              key={index}
+              className={`flex h-[56px] items-center justify-center rounded-2xl border text-xl font-semibold transition ${
+                isDark
+                  ? "border-white/[0.10] bg-[#292a2f] text-white"
+                  : "border-[#dbe7f0] bg-white text-[#171717]"
+              } ${active ? "!border-[#229ED9] ring-4 ring-[#229ED9]/15" : ""}`}
+            >
+              {digit || ""}
+            </div>
+          );
+        })}
+      </div>
+
+      {loading && (
+        <div className="mt-3 flex items-center justify-center gap-2 text-xs text-[#229ED9]">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Verifying code...
+        </div>
+      )}
     </div>
   );
 }
@@ -1452,10 +1562,10 @@ function NetworkIpCell({ account, isDark, onShowTooltip, onHideTooltip }) {
       <div
         onMouseEnter={handleEnter}
         onMouseLeave={onHideTooltip}
-        className={`inline-flex max-w-[210px] items-center gap-2 rounded-2xl border px-3 py-2 transition ${
+        className={`inline-flex max-w-[210px] items-center gap-2 transition ${
           isDark
-            ? "border-white/[0.08] bg-white/[0.045] text-white hover:border-[#d8c49a]/35 hover:bg-white/[0.07]"
-            : "border-[#eee4d5] bg-[#fbf8f2] text-[#201d19] hover:border-[#d8c49a] hover:bg-white"
+            ? "text-white hover:border-[#d8c49a]/35 hover:bg-white/[0.07]"
+            : "text-[#201d19] hover:border-[#d8c49a] hover:bg-white"
         }`}
       >
         <span
@@ -1470,9 +1580,7 @@ function NetworkIpCell({ account, isDark, onShowTooltip, onHideTooltip }) {
           }`}
         />
 
-        <span className="truncate font-mono text-xs font-semibold">
-          {fullAddress}
-        </span>
+        <span className="truncate font-mono text-xs">{fullAddress}</span>
 
         <button
           type="button"
@@ -1500,7 +1608,6 @@ function NetworkInfoBubble({ profile, isDark, position }) {
       profile.host && profile.port ? `${profile.host}:${profile.port}` : "-",
     ],
     ["Username", profile.username || "-"],
-    ["Location", profile.city || profile.country || profile.region || "-"],
     ["Status", profile.status || "-"],
     ["Last tested", formatDate(profile.lastTestedAt)],
   ];
@@ -1605,6 +1712,152 @@ function Th({ children, align = "left" }) {
     >
       {children}
     </th>
+  );
+}
+
+function DeviceModelCell({ account, isDark, onShowTooltip, onHideTooltip }) {
+  const deviceModel = account.deviceModel || "Not set";
+
+  function handleEnter(e) {
+    const rect = e.currentTarget.getBoundingClientRect();
+
+    onShowTooltip({
+      account,
+      position: {
+        top: rect.bottom + 10,
+        left: Math.min(rect.left, window.innerWidth - 340),
+      },
+    });
+  }
+
+  return (
+    <div className="min-w-[190px]">
+      <div
+        onMouseEnter={handleEnter}
+        onMouseLeave={onHideTooltip}
+        className={`inline-flex max-w-[210px] items-center gap-2 transition ${
+          isDark
+            ? "text-white hover:border-[#d8c49a]/35 hover:bg-white/[0.07]"
+            : "text-[#201d19] hover:border-[#d8c49a] hover:bg-white"
+        }`}
+      >
+        <span
+          className={`h-2 w-2 shrink-0 rounded-full ${
+            account.deviceModel ? "bg-emerald-400" : "bg-amber-400"
+          }`}
+        />
+
+        <span className="truncate font-mono text-xs">{deviceModel}</span>
+
+        <button
+          type="button"
+          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition ${
+            isDark
+              ? "bg-white/[0.08] text-white/45 hover:bg-[#d8c49a]/15 hover:text-[#d8c49a]"
+              : "bg-white text-[#8a8176] ring-1 ring-[#eee4d5] hover:text-[#9b7b3d]"
+          }`}
+          aria-label="Device model details"
+        >
+          <Info className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DeviceInfoBubble({ account, isDark, position }) {
+  const rows = [
+    ["Device model", account.deviceModel || "-"],
+    ["System version", account.systemVersion || "-"],
+    ["App version", account.appVersion || "-"],
+    ["Phone", account.phoneNumber || "-"],
+    ["Label", account.label || "Telegram Account"],
+    ["Status", account.status || "-"],
+    ["Last login", formatDate(account.lastLoginAt)],
+  ];
+
+  return (
+    <div
+      className={`fixed z-[9999] w-[320px] rounded-[22px] border p-4 text-left shadow-2xl backdrop-blur-xl ${
+        isDark
+          ? "border-white/[0.10] bg-[#1f2025]/95 text-white shadow-black/35"
+          : "border-[#eee4d5] bg-white/95 text-[#201d19] shadow-[0_22px_60px_rgba(30,25,18,0.16)]"
+      }`}
+      style={{
+        top: position?.top || 0,
+        left: position?.left || 0,
+      }}
+    >
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <div
+            className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${
+              isDark ? "text-[#d8c49a]" : "text-[#9b7b3d]"
+            }`}
+          >
+            Telegram Client Identity
+          </div>
+
+          <div className="mt-1 font-mono text-sm font-semibold">
+            {account.deviceModel || "Not set"}
+          </div>
+        </div>
+
+        <span
+          className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+            account.deviceModel
+              ? isDark
+                ? "bg-emerald-400/10 text-emerald-300"
+                : "bg-emerald-50 text-emerald-700"
+              : isDark
+                ? "bg-amber-400/10 text-amber-300"
+                : "bg-amber-50 text-amber-700"
+          }`}
+        >
+          {account.deviceModel ? "Set" : "Missing"}
+        </span>
+      </div>
+
+      <div
+        className={`h-px w-full ${isDark ? "bg-white/[0.08]" : "bg-[#eee4d5]"}`}
+      />
+
+      <div className="mt-3 space-y-2.5">
+        {rows.map(([label, value]) => (
+          <div key={label} className="grid grid-cols-[98px_1fr] gap-3">
+            <div
+              className={`text-[11px] ${
+                isDark ? "text-white/35" : "text-[#8a8176]"
+              }`}
+            >
+              {label}
+            </div>
+
+            <div
+              className={`break-words text-[12px] font-medium ${
+                ["Device model", "System version", "App version"].includes(
+                  label,
+                )
+                  ? "font-mono"
+                  : ""
+              } ${isDark ? "text-white/72" : "text-[#201d19]"}`}
+            >
+              {value}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div
+        className={`mt-4 rounded-2xl px-3 py-2 text-[11px] leading-5 ${
+          isDark
+            ? "bg-white/[0.055] text-white/38"
+            : "bg-[#f8fafc] text-[#64748b]"
+        }`}
+      >
+        This is the stable Telegram client identity saved for this account.
+      </div>
+    </div>
   );
 }
 

@@ -22,6 +22,7 @@ import { useTheme } from "../context/ThemeContext";
 const DEFAULT_IMPORT_META = {
   provider: "webshare",
   source: "webshare",
+  type: "socks5",
 };
 
 function normalizeSearch(value) {
@@ -198,6 +199,7 @@ export default function NetworkProfiles() {
         text,
         provider: importMeta.provider,
         source: importMeta.source,
+        type: importMeta.type || "socks5",
       });
 
       toast.success(res.data?.message || "Network profiles imported");
@@ -896,7 +898,7 @@ function ImportModal({
         </div>
 
         <form onSubmit={onSubmit} className="px-6 py-6">
-          <div className="mb-4 grid gap-3 sm:grid-cols-2">
+          <div className="mb-4 grid gap-3 sm:grid-cols-3">
             <Field isDark={isDark} label="Provider">
               <input
                 value={meta.provider}
@@ -913,6 +915,17 @@ function ImportModal({
                 className={inputClass(isDark)}
                 placeholder="webshare, project-a, telegram-main..."
               />
+            </Field>
+
+            <Field isDark={isDark} label="Proxy Type">
+              <select
+                value={meta.type || "socks5"}
+                onChange={(e) => onMetaChange("type", e.target.value)}
+                className={inputClass(isDark)}
+              >
+                <option value="socks5">SOCKS5</option>
+                <option value="mtproxy">MTProxy</option>
+              </select>
             </Field>
           </div>
 
@@ -950,9 +963,9 @@ function ImportModal({
             }`}
           >
             Required format:{" "}
-            <span className="font-mono">host:port:username:password</span>.
-            Paste the export exactly like Webshare gives you. No city or
-            location needed.
+            <span className="font-mono">host:port:username:password</span>. For
+            Telegram login, use SOCKS5 proxies. HTTP proxies should not be used
+            for Telegram sessions.
           </div>
 
           <button
