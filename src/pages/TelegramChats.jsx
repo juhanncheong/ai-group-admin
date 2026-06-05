@@ -37,7 +37,11 @@ import EmojiPicker from "emoji-picker-react";
 import Lottie from "lottie-react";
 import pako from "pako";
 
-const socket = io("https://valuable-raphaela-jayjay122-5bf3a028.koyeb.app", {
+const API_BASE_URL =
+  api?.defaults?.baseURL?.replace(/\/$/, "") ||
+  import.meta.env.VITE_API_URL?.replace(/\/$/, "");
+
+const socket = io(API_BASE_URL, {
   transports: ["websocket"],
 });
 
@@ -157,7 +161,8 @@ function getMemberInitials(member) {
 function getApiBase() {
   return (
     api?.defaults?.baseURL?.replace(/\/$/, "") ||
-    "https://valuable-raphaela-jayjay122-5bf3a028.koyeb.app"
+    import.meta.env.VITE_API_URL?.replace(/\/$/, "") ||
+    ""
   );
 }
 
@@ -5252,9 +5257,7 @@ function RadioCircle({ active }) {
 function ChatAvatar({ isDark, chat, size = "small", active = false }) {
   const [failed, setFailed] = useState(false);
 
-  const apiBase =
-    api?.defaults?.baseURL?.replace(/\/$/, "") ||
-    "https://valuable-raphaela-jayjay122-5bf3a028.koyeb.app";
+  const apiBase = API_BASE_URL;
 
   const dimension = size === "large" ? "h-[112px] w-[112px]" : "h-11 w-11";
   const textSize = size === "large" ? "text-[34px]" : "text-[16px]";
