@@ -84,6 +84,7 @@ export default function TelegramConnect() {
 
   const [loading, setLoading] = useState(false);
   const [actionId, setActionId] = useState("");
+  const [modalClosing, setModalClosing] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
@@ -219,12 +220,17 @@ export default function TelegramConnect() {
   function closeModal() {
     if (loading) return;
 
-    setModalOpen(false);
-    setStep("phone");
-    setPhoneNumber("");
-    setLabel("");
-    setCode("");
-    setPassword("");
+    setModalClosing(true);
+
+    setTimeout(() => {
+      setModalOpen(false);
+      setModalClosing(false);
+      setStep("phone");
+      setPhoneNumber("");
+      setLabel("");
+      setCode("");
+      setPassword("");
+    }, 360);
   }
 
   async function handleSendCode(e) {
@@ -685,6 +691,7 @@ export default function TelegramConnect() {
             setPhoneNumber={setPhoneNumber}
             label={label}
             setLabel={setLabel}
+            closing={modalClosing}
             code={code}
             setCode={setCode}
             password={password}
@@ -698,6 +705,105 @@ export default function TelegramConnect() {
             onDone={closeModal}
           />
         )}
+
+        <style>{`
+  @keyframes telegramModalEnter {
+    from {
+      opacity: 0;
+      transform: translateY(18px) scale(0.96);
+      filter: blur(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      filter: blur(0);
+    }
+  }
+
+  @keyframes telegramSuccessExit {
+    0% {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+      filter: blur(0);
+    }
+    55% {
+      opacity: 1;
+      transform: scale(1.035) translateY(-4px);
+      filter: blur(0);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(0.88) translateY(24px);
+      filter: blur(10px);
+    }
+  }
+
+  @keyframes successPop {
+    0% {
+      opacity: 0;
+      transform: scale(0.35) rotate(-18deg);
+    }
+    65% {
+      opacity: 1;
+      transform: scale(1.12) rotate(5deg);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1) rotate(0);
+    }
+  }
+
+  @keyframes successPulse {
+    0% {
+      opacity: 0.8;
+      transform: scale(0.72);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(1.45);
+    }
+  }
+
+  @keyframes checkWiggle {
+    0% {
+      transform: scale(0.6) rotate(-18deg);
+    }
+    45% {
+      transform: scale(1.12) rotate(8deg);
+    }
+    70% {
+      transform: scale(0.96) rotate(-4deg);
+    }
+    100% {
+      transform: scale(1) rotate(0);
+    }
+  }
+
+  @keyframes successSlideUp {
+    from {
+      opacity: 0;
+      transform: translateY(16px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes confettiDrop {
+    0% {
+      opacity: 0;
+      transform: translateY(-10px) rotate(0deg) scale(0.6);
+    }
+    15% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+      transform: translateY(230px) rotate(260deg) scale(1);
+    }
+  }
+`}</style>
       </div>
     </Shell>
   );
@@ -977,6 +1083,7 @@ function SmartSearchBar({ isDark, value, onChange, resultCount, totalCount }) {
 
 function TelegramLoginModal({
   isDark,
+  closing,
   step,
   loading,
   phoneNumber,
@@ -1008,6 +1115,17 @@ function TelegramLoginModal({
     return () => clearTimeout(focusTimer);
   }, [step, loading]);
 
+  useEffect(() => {
+    if (step !== "success") return;
+    if (loading) return;
+
+    const closeTimer = setTimeout(() => {
+      onDone();
+    }, 2200);
+
+    return () => clearTimeout(closeTimer);
+  }, [step, loading, onDone]);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
       <button
@@ -1019,8 +1137,10 @@ function TelegramLoginModal({
 
       <div
         className={`relative z-10 w-full max-w-[430px] overflow-hidden rounded-[30px] shadow-2xl ${
-          isDark ? "bg-[#202127] text-white" : "bg-white text-[#171717]"
-        }`}
+          closing
+            ? "animate-[telegramSuccessExit_360ms_cubic-bezier(.4,0,.2,1)_forwards]"
+            : "animate-[telegramModalEnter_420ms_cubic-bezier(.16,1,.3,1)_both]"
+        } ${isDark ? "bg-[#202127] text-white" : "bg-white text-[#171717]"}`}
       >
         <button
           type="button"
@@ -1184,30 +1304,39 @@ function TelegramLoginModal({
           )}
 
           {step === "success" && (
-            <div className="text-center">
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/12 text-emerald-500">
-                <CheckCircle2 className="h-8 w-8" />
-              </div>
+            <div className="relative overflow-hidden text-center">
+              <SuccessConfetti />
 
-              <div className="mt-4 text-lg font-semibold">
-                Telegram account connected
-              </div>
+              <div className="relative z-10">
+                <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-emerald-500/10">
+                  <div className="absolute h-24 w-24 animate-[successPulse_1.6s_ease-out_infinite] rounded-full border border-emerald-400/40" />
+                  <div className="absolute h-20 w-20 animate-[successPulse_1.6s_ease-out_300ms_infinite] rounded-full border border-emerald-400/30" />
 
-              <div
-                className={`mt-2 text-sm leading-6 ${
-                  isDark ? "text-white/45" : "text-[#64748b]"
-                }`}
-              >
-                This account is now available in the admin account list.
-              </div>
+                  <div className="relative flex h-16 w-16 animate-[successPop_560ms_cubic-bezier(.16,1,.3,1)_both] items-center justify-center rounded-full bg-emerald-500 text-white shadow-[0_18px_45px_rgba(16,185,129,0.35)]">
+                    <CheckCircle2 className="h-9 w-9 animate-[checkWiggle_900ms_ease_380ms_both]" />
+                  </div>
+                </div>
 
-              <button
-                type="button"
-                onClick={onDone}
-                className={telegramButtonClass()}
-              >
-                Done
-              </button>
+                <div className="mt-6 animate-[successSlideUp_520ms_cubic-bezier(.16,1,.3,1)_160ms_both] text-[24px] font-bold tracking-[-0.04em]">
+                  Telegram account connected
+                </div>
+
+                <div
+                  className={`mx-auto mt-3 max-w-[330px] animate-[successSlideUp_520ms_cubic-bezier(.16,1,.3,1)_240ms_both] text-sm leading-6 ${
+                    isDark ? "text-white/48" : "text-[#64748b]"
+                  }`}
+                >
+                  This account is now ready in your admin account list.
+                </div>
+
+                <button
+                  type="button"
+                  onClick={onDone}
+                  className={`${telegramButtonClass()} animate-[successSlideUp_520ms_cubic-bezier(.16,1,.3,1)_340ms_both] shadow-[0_18px_40px_rgba(34,158,217,0.25)] hover:scale-[1.015] active:scale-[0.98]`}
+                >
+                  Done
+                </button>
+              </div>
             </div>
           )}
 
@@ -1223,6 +1352,31 @@ function TelegramLoginModal({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function SuccessConfetti() {
+  const pieces = Array.from({ length: 18 }, (_, index) => index);
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+      {pieces.map((item) => {
+        const left = 8 + ((item * 19) % 84);
+        const delay = (item % 6) * 80;
+        const duration = 900 + (item % 5) * 110;
+
+        return (
+          <span
+            key={item}
+            className="absolute top-[-12px] h-2 w-2 rounded-full bg-[#229ED9] opacity-0"
+            style={{
+              left: `${left}%`,
+              animation: `confettiDrop ${duration}ms ease-out ${delay}ms forwards`,
+            }}
+          />
+        );
+      })}
     </div>
   );
 }
