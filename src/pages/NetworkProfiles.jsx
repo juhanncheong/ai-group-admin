@@ -2,11 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
   CircleOff,
+  Clock3,
+  Globe2,
   Loader2,
   Network,
   Plus,
   RefreshCw,
   Search,
+  ShieldCheck,
   Trash2,
   Upload,
   X,
@@ -16,6 +19,11 @@ import Shell from "../components/Shell";
 import { api } from "../api";
 import { useTheme } from "../context/ThemeContext";
 
+const DEFAULT_IMPORT_META = {
+  provider: "webshare",
+  source: "webshare",
+};
+
 function normalizeSearch(value) {
   return String(value || "")
     .toLowerCase()
@@ -23,9 +31,27 @@ function normalizeSearch(value) {
     .trim();
 }
 
+function getRole() {
+  try {
+    const raw = localStorage.getItem("admin_profile");
+    const profile = raw ? JSON.parse(raw) : {};
+    return profile?.role || "admin";
+  } catch {
+    return "admin";
+  }
+}
+
+function countProxyLines(value) {
+  return String(value || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean).length;
+}
+
 export default function NetworkProfiles() {
   const { theme } = useTheme();
   const isDark = theme === "dark";
+  const isSuperAdmin = getRole() === "super_admin";
 
   const [profiles, setProfiles] = useState([]);
   const [stats, setStats] = useState({
@@ -34,6 +60,9 @@ export default function NetworkProfiles() {
     assigned: 0,
     reserved: 0,
     disabled: 0,
+    failed: 0,
+    tested: 0,
+    working: 0,
   });
 
   const [loading, setLoading] = useState(true);
@@ -43,6 +72,7 @@ export default function NetworkProfiles() {
 
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
+  const [importMeta, setImportMeta] = useState(DEFAULT_IMPORT_META);
   const [importing, setImporting] = useState(false);
 
   useEffect(() => {
@@ -57,14 +87,15 @@ export default function NetworkProfiles() {
     return profiles.filter((profile) => {
       const text = [
         profile.name,
+        profile.type,
         profile.host,
         profile.port,
         profile.username,
-        profile.country,
-        profile.city,
-        profile.region,
         profile.provider,
+        profile.source,
         profile.status,
+        profile.detectedIp,
+        profile.lastError,
         profile.assignedTelegramAccount?.phoneNumber,
         profile.assignedTelegramAccount?.label,
       ]
@@ -93,6 +124,7 @@ export default function NetworkProfiles() {
       setProfiles(
         Array.isArray(profilesRes.data?.data) ? profilesRes.data.data : [],
       );
+
       setStats(statsRes.data?.data || {});
     } catch (err) {
       console.error("Load network profiles error:", err);
@@ -107,8 +139,24 @@ export default function NetworkProfiles() {
     }
   }
 
+  function blockIfNotSuperAdmin() {
+    if (isSuperAdmin) return false;
+
+    toast.error("Only super admin can edit this.");
+    return true;
+  }
+
+  function updateImportMeta(field, value) {
+    setImportMeta((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  }
+
   async function handleImport(e) {
     e.preventDefault();
+
+    if (blockIfNotSuperAdmin()) return;
 
     const text = String(importText || "").trim();
 
@@ -117,16 +165,28 @@ export default function NetworkProfiles() {
       return;
     }
 
+    const lines = countProxyLines(text);
+
+    if (!lines) {
+      toast.error("No valid proxy lines found");
+      return;
+    }
+
     setImporting(true);
 
     try {
       const res = await api.post("/api/network-profiles/import", {
         text,
+        provider: importMeta.provider,
+        source: importMeta.source,
       });
 
       toast.success(res.data?.message || "Network profiles imported");
+
       setImportText("");
+      setImportMeta(DEFAULT_IMPORT_META);
       setImportOpen(false);
+
       await loadData({ silent: true });
     } catch (err) {
       console.error("Import network profiles error:", err);
@@ -142,6 +202,7 @@ export default function NetworkProfiles() {
 
   async function handleTest(profileId) {
     if (!profileId) return;
+    if (blockIfNotSuperAdmin()) return;
 
     setActionId(profileId);
 
@@ -149,9 +210,16 @@ export default function NetworkProfiles() {
       const res = await api.post(`/api/network-profiles/${profileId}/test`);
 
       if (res.data?.success) {
-        toast.success(res.data?.message || "Network profile is reachable");
+        const ip = res.data?.data?.detectedIp;
+        const latency = res.data?.data?.latencyMs;
+
+        toast.success(
+          ip
+            ? `Proxy working · IP ${ip}${latency ? ` · ${latency}ms` : ""}`
+            : res.data?.message || "Proxy is working",
+        );
       } else {
-        toast.error(res.data?.message || "Network profile test failed");
+        toast.error(res.data?.message || "Proxy test failed");
       }
 
       await loadData({ silent: true });
@@ -160,7 +228,7 @@ export default function NetworkProfiles() {
       toast.error(
         err?.response?.data?.message ||
           err?.response?.data?.error ||
-          "Network profile test failed",
+          "Proxy test failed",
       );
       await loadData({ silent: true });
     } finally {
@@ -170,6 +238,7 @@ export default function NetworkProfiles() {
 
   async function handleDisable(profileId) {
     if (!profileId) return;
+    if (blockIfNotSuperAdmin()) return;
 
     const yes = window.confirm("Disable this network profile?");
     if (!yes) return;
@@ -197,6 +266,7 @@ export default function NetworkProfiles() {
 
   async function handleRelease(profileId) {
     if (!profileId) return;
+    if (blockIfNotSuperAdmin()) return;
 
     const yes = window.confirm(
       "Release this network profile back to available pool?",
@@ -223,8 +293,34 @@ export default function NetworkProfiles() {
     }
   }
 
+  async function handleMarkAvailable(profileId) {
+    if (!profileId) return;
+    if (blockIfNotSuperAdmin()) return;
+
+    setActionId(profileId);
+
+    try {
+      const res = await api.patch(`/api/network-profiles/${profileId}/status`, {
+        status: "available",
+      });
+
+      toast.success(res.data?.message || "Network profile marked available");
+      await loadData({ silent: true });
+    } catch (err) {
+      console.error("Mark available network profile error:", err);
+      toast.error(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Failed to mark profile available",
+      );
+    } finally {
+      setActionId("");
+    }
+  }
+
   async function handleDelete(profileId) {
     if (!profileId) return;
+    if (blockIfNotSuperAdmin()) return;
 
     const yes = window.confirm(
       "Delete this network profile? Only unassigned profiles can be deleted.",
@@ -259,80 +355,37 @@ export default function NetworkProfiles() {
         }`}
       >
         <section className="space-y-5">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex min-w-0 items-center gap-3">
-              <div
-                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${
-                  isDark
-                    ? "bg-white/[0.06] text-white/65"
-                    : "bg-white text-[#6d6254]"
-                }`}
-              >
-                <Network className="h-4 w-4" />
-              </div>
+          <TopHeader
+            isDark={isDark}
+            refreshing={refreshing}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            resultCount={filteredProfiles.length}
+            totalCount={profiles.length}
+            onRefresh={() => loadData({ silent: true })}
+            onImport={() => {
+              if (blockIfNotSuperAdmin()) return;
+              setImportOpen(true);
+            }}
+          />
 
-              <div className="min-w-0">
-                <div
-                  className={`text-[11px] font-medium uppercase tracking-[0.18em] ${
-                    isDark ? "text-white/38" : "text-[#8a8176]"
-                  }`}
-                >
-                  Proxy Pool
-                </div>
-
-                <h2
-                  className={`mt-0.5 truncate text-[22px] font-semibold tracking-[-0.04em] ${
-                    isDark ? "text-white" : "text-[#201d19]"
-                  }`}
-                >
-                  Network Profiles
-                </h2>
-              </div>
-            </div>
-
-            <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center xl:w-auto">
-              <SearchBar
-                isDark={isDark}
-                value={searchQuery}
-                onChange={setSearchQuery}
-                resultCount={filteredProfiles.length}
-                totalCount={profiles.length}
-              />
-
-              <div className="flex shrink-0 items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => loadData({ silent: true })}
-                  disabled={refreshing}
-                  className={softButtonClass(isDark)}
-                >
-                  {refreshing ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <RefreshCw className="h-3.5 w-3.5" />
-                  )}
-                  Refresh
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setImportOpen(true)}
-                  className={primaryButtonClass()}
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Import Profiles
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-5">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-8">
             <MiniStat label="Total" value={stats.total || 0} isDark={isDark} />
             <MiniStat
               label="Available"
               value={stats.available || 0}
               isDark={isDark}
               active
+            />
+            <MiniStat
+              label="Working"
+              value={stats.working || 0}
+              isDark={isDark}
+            />
+            <MiniStat
+              label="Tested"
+              value={stats.tested || 0}
+              isDark={isDark}
             />
             <MiniStat
               label="Assigned"
@@ -345,11 +398,18 @@ export default function NetworkProfiles() {
               isDark={isDark}
             />
             <MiniStat
+              label="Failed"
+              value={stats.failed || 0}
+              isDark={isDark}
+            />
+            <MiniStat
               label="Disabled"
               value={stats.disabled || 0}
               isDark={isDark}
             />
           </div>
+
+          <InfoStrip isDark={isDark} isSuperAdmin={isSuperAdmin} />
 
           <div
             className={`overflow-hidden rounded-[24px] border ${
@@ -359,7 +419,7 @@ export default function NetworkProfiles() {
             }`}
           >
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1120px] border-collapse">
+              <table className="w-full min-w-[1320px] border-collapse">
                 <thead>
                   <tr
                     className={
@@ -370,10 +430,11 @@ export default function NetworkProfiles() {
                   >
                     <Th>Profile</Th>
                     <Th>Proxy Address</Th>
-                    <Th>Location</Th>
+                    <Th>Detected IP</Th>
                     <Th>Status</Th>
                     <Th>Assigned Account</Th>
                     <Th>Last Tested</Th>
+                    <Th>Health</Th>
                     <Th align="right">Actions</Th>
                   </tr>
                 </thead>
@@ -381,7 +442,7 @@ export default function NetworkProfiles() {
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={7} className="px-5 py-12 text-center">
+                      <td colSpan={8} className="px-5 py-12 text-center">
                         <div
                           className={`inline-flex items-center gap-2 text-sm ${
                             isDark ? "text-white/50" : "text-[#746b61]"
@@ -402,49 +463,20 @@ export default function NetworkProfiles() {
                         onTest={() => handleTest(profile._id)}
                         onDisable={() => handleDisable(profile._id)}
                         onRelease={() => handleRelease(profile._id)}
+                        onMarkAvailable={() => handleMarkAvailable(profile._id)}
                         onDelete={() => handleDelete(profile._id)}
                       />
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={7} className="px-5 py-12 text-center">
-                        <div className="mx-auto max-w-sm">
-                          <div
-                            className={`mx-auto flex h-12 w-12 items-center justify-center rounded-2xl ${
-                              isDark
-                                ? "bg-white/[0.07] text-white/60"
-                                : "bg-[#eee4d5] text-[#5c5348]"
-                            }`}
-                          >
-                            <Network className="h-5 w-5" />
-                          </div>
-
-                          <div
-                            className={`mt-4 text-sm font-semibold ${
-                              isDark ? "text-white" : "text-[#201d19]"
-                            }`}
-                          >
-                            No network profiles found
-                          </div>
-
-                          <div
-                            className={`mt-2 text-xs leading-5 ${
-                              isDark ? "text-white/42" : "text-[#746b61]"
-                            }`}
-                          >
-                            Import your Webshare SOCKS5 proxies before
-                            connecting Telegram accounts.
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => setImportOpen(true)}
-                            className={`${primaryButtonClass()} mx-auto mt-5`}
-                          >
-                            <Upload className="h-4 w-4" />
-                            Import Profiles
-                          </button>
-                        </div>
+                      <td colSpan={8} className="px-5 py-12 text-center">
+                        <EmptyState
+                          isDark={isDark}
+                          onImport={() => {
+                            if (blockIfNotSuperAdmin()) return;
+                            setImportOpen(true);
+                          }}
+                        />
                       </td>
                     </tr>
                   )}
@@ -459,6 +491,8 @@ export default function NetworkProfiles() {
             isDark={isDark}
             value={importText}
             onChange={setImportText}
+            meta={importMeta}
+            onMetaChange={updateImportMeta}
             loading={importing}
             onClose={() => {
               if (!importing) setImportOpen(false);
@@ -471,6 +505,130 @@ export default function NetworkProfiles() {
   );
 }
 
+function TopHeader({
+  isDark,
+  refreshing,
+  searchQuery,
+  setSearchQuery,
+  resultCount,
+  totalCount,
+  onRefresh,
+  onImport,
+}) {
+  return (
+    <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+      <div className="flex min-w-0 items-center gap-3">
+        <div
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${
+            isDark ? "bg-white/[0.06] text-white/65" : "bg-white text-[#6d6254]"
+          }`}
+        >
+          <Network className="h-4 w-4" />
+        </div>
+
+        <div className="min-w-0">
+          <div
+            className={`text-[11px] font-medium uppercase tracking-[0.18em] ${
+              isDark ? "text-white/38" : "text-[#8a8176]"
+            }`}
+          >
+            Proxy Pool
+          </div>
+
+          <h2
+            className={`mt-0.5 truncate text-[22px] font-semibold tracking-[-0.04em] ${
+              isDark ? "text-white" : "text-[#201d19]"
+            }`}
+          >
+            Network Profiles
+          </h2>
+        </div>
+      </div>
+
+      <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center xl:w-auto">
+        <SearchBar
+          isDark={isDark}
+          value={searchQuery}
+          onChange={setSearchQuery}
+          resultCount={resultCount}
+          totalCount={totalCount}
+        />
+
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={refreshing}
+            className={softButtonClass(isDark)}
+          >
+            {refreshing ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+            Refresh
+          </button>
+
+          <button
+            type="button"
+            onClick={onImport}
+            className={primaryButtonClass()}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Import Profiles
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InfoStrip({ isDark, isSuperAdmin }) {
+  return (
+    <div
+      className={`rounded-[22px] border px-4 py-3 ${
+        isDark
+          ? "border-white/[0.06] bg-[#282a30] text-white"
+          : "border-[#eee4d5] bg-white text-[#201d19]"
+      }`}
+    >
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[16px] bg-[#d8c49a] text-[#171719]">
+            <ShieldCheck className="h-4 w-4" />
+          </div>
+
+          <div>
+            <div className="text-sm font-semibold">
+              {isSuperAdmin ? "Super admin controls enabled" : "View only mode"}
+            </div>
+
+            <div
+              className={`mt-1 text-xs leading-5 ${
+                isDark ? "text-white/42" : "text-[#746b61]"
+              }`}
+            >
+              Admin can view proxy health, detected IP, assignment, and test
+              history. Only super admin can import, test, disable, release, or
+              delete proxies.
+            </div>
+          </div>
+        </div>
+
+        <div
+          className={`rounded-[16px] px-3 py-2 text-xs ${
+            isDark
+              ? "bg-white/[0.06] text-white/45"
+              : "bg-[#f7f2ea] text-[#70675c]"
+          }`}
+        >
+          Format: host:port:username:password
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProfileRow({
   profile,
   isDark,
@@ -478,6 +636,7 @@ function ProfileRow({
   onTest,
   onDisable,
   onRelease,
+  onMarkAvailable,
   onDelete,
 }) {
   const assigned = profile.assignedTelegramAccount;
@@ -490,33 +649,43 @@ function ProfileRow({
           : "border-[#eee4d5]/80 text-[#201d19] hover:bg-[#fbf8f2]"
       }`}
     >
-      <td className="px-5 py-2.5">
+      <td className="px-5 py-3">
         <div className="text-sm font-semibold">
           {profile.name || "Network Profile"}
         </div>
+
         <div className={`mt-0.5 text-xs ${mutedTextClass(isDark)}`}>
-          {profile.provider || "webshare"} · {profile.type || "socks5"}
+          {profile.provider || "webshare"} · {profile.source || "manual"} ·{" "}
+          {profile.type || "http"}
         </div>
       </td>
 
-      <td className="px-5 py-2.5">
+      <td className="px-5 py-3">
         <div className="font-mono text-xs">
           {profile.host}:{profile.port}
         </div>
+
         <div className={`mt-0.5 text-xs ${mutedTextClass(isDark)}`}>
           {profile.username ? `User: ${profile.username}` : "No username"}
         </div>
       </td>
 
-      <td className={`px-5 py-2.5 text-sm ${mutedTextClass(isDark)}`}>
-        {profile.city || profile.country || profile.region || "-"}
+      <td className="px-5 py-3">
+        <div className="flex items-center gap-2">
+          <Globe2 className={`h-3.5 w-3.5 ${mutedTextClass(isDark)}`} />
+          <span className="font-mono text-xs">{profile.detectedIp || "-"}</span>
+        </div>
+
+        <div className={`mt-0.5 text-xs ${mutedTextClass(isDark)}`}>
+          {profile.latencyMs ? `${profile.latencyMs}ms latency` : "Not tested"}
+        </div>
       </td>
 
-      <td className="px-5 py-2.5">
+      <td className="px-5 py-3">
         <StatusPill status={profile.status} isDark={isDark} />
       </td>
 
-      <td className="px-5 py-2.5">
+      <td className="px-5 py-3">
         {assigned ? (
           <div>
             <div className="text-sm font-medium">
@@ -533,11 +702,15 @@ function ProfileRow({
         )}
       </td>
 
-      <td className={`px-5 py-2.5 text-sm ${mutedTextClass(isDark)}`}>
+      <td className={`px-5 py-3 text-sm ${mutedTextClass(isDark)}`}>
         {formatDate(profile.lastTestedAt)}
       </td>
 
-      <td className="px-5 py-2.5">
+      <td className="px-5 py-3">
+        <HealthBox profile={profile} isDark={isDark} />
+      </td>
+
+      <td className="px-5 py-3">
         <div className="flex justify-end gap-2">
           <button
             type="button"
@@ -547,6 +720,17 @@ function ProfileRow({
           >
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Test"}
           </button>
+
+          {profile.status !== "available" && (
+            <button
+              type="button"
+              onClick={onMarkAvailable}
+              disabled={busy}
+              className={tinyButtonClass(isDark)}
+            >
+              Available
+            </button>
+          )}
 
           {profile.status !== "available" && (
             <button
@@ -588,7 +772,42 @@ function ProfileRow({
   );
 }
 
-function ImportModal({ isDark, value, onChange, loading, onClose, onSubmit }) {
+function HealthBox({ profile, isDark }) {
+  const success = profile.lastTestSuccess === true;
+  const failed = profile.lastTestSuccess === false;
+
+  const label = success ? "Working" : failed ? "Failed" : "Untested";
+
+  return (
+    <div>
+      <div className="flex items-center gap-2">
+        <Clock3 className={`h-3.5 w-3.5 ${mutedTextClass(isDark)}`} />
+
+        <span className={`text-xs font-normal ${mutedTextClass(isDark)}`}>
+          {label}
+        </span>
+      </div>
+
+      <div className={`mt-0.5 text-xs ${mutedTextClass(isDark)}`}>
+        {profile.lastError ||
+          `${profile.successCount || 0} ok | ${profile.failureCount || 0} fail`}
+      </div>
+    </div>
+  );
+}
+
+function ImportModal({
+  isDark,
+  value,
+  onChange,
+  meta,
+  onMetaChange,
+  loading,
+  onClose,
+  onSubmit,
+}) {
+  const lineCount = countProxyLines(value);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
       <button
@@ -599,7 +818,7 @@ function ImportModal({ isDark, value, onChange, loading, onClose, onSubmit }) {
       />
 
       <div
-        className={`relative z-10 w-full max-w-[620px] overflow-hidden rounded-[30px] shadow-2xl ${
+        className={`relative z-10 w-full max-w-[720px] overflow-hidden rounded-[30px] shadow-2xl ${
           isDark ? "bg-[#202127] text-white" : "bg-white text-[#171717]"
         }`}
       >
@@ -622,22 +841,54 @@ function ImportModal({ isDark, value, onChange, loading, onClose, onSubmit }) {
           </div>
 
           <div className="mt-4 text-xl font-semibold tracking-[-0.03em]">
-            Import Network Profiles
+            Import Webshare Proxies
           </div>
 
           <div className="mt-1 text-sm text-black/60">
-            Paste Webshare proxy lines into the box below.
+            Paste exported Webshare lines. One line equals one proxy.
           </div>
         </div>
 
         <form onSubmit={onSubmit} className="px-6 py-6">
-          <label className={labelClass(isDark)}>Proxy list</label>
+          <div className="mb-4 grid gap-3 sm:grid-cols-2">
+            <Field isDark={isDark} label="Provider">
+              <input
+                value={meta.provider}
+                onChange={(e) => onMetaChange("provider", e.target.value)}
+                className={inputClass(isDark)}
+                placeholder="webshare"
+              />
+            </Field>
+
+            <Field isDark={isDark} label="Project / Group">
+              <input
+                value={meta.source}
+                onChange={(e) => onMetaChange("source", e.target.value)}
+                className={inputClass(isDark)}
+                placeholder="webshare, project-a, telegram-main..."
+              />
+            </Field>
+          </div>
+
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <label className={labelClass(isDark)}>Proxy list</label>
+
+            <span
+              className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                isDark
+                  ? "bg-white/[0.06] text-white/45"
+                  : "bg-[#f8fafc] text-[#64748b]"
+              }`}
+            >
+              {lineCount} line(s)
+            </span>
+          </div>
 
           <textarea
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            placeholder={`123.123.123.123,1080,username,password,city\n124.124.124.124,1080,username,password,city`}
-            rows={10}
+            placeholder={`45.38.87.94:7016:dbqbopyn:jqxd9v4zevq0\n96.8.118.27:5393:dbqbopyn:jqxd9v4zevq0\n148.135.157.166:7919:dbqbopyn:jqxd9v4zevq0`}
+            rows={11}
             className={`w-full rounded-2xl border px-4 py-3 font-mono text-[13px] outline-none transition ${
               isDark
                 ? "border-white/[0.10] bg-[#292a2f] text-white placeholder:text-white/28 focus:border-[#d8c49a]/60 focus:ring-4 focus:ring-[#d8c49a]/10"
@@ -652,14 +903,10 @@ function ImportModal({ isDark, value, onChange, loading, onClose, onSubmit }) {
                 : "bg-[#f8fafc] text-[#64748b]"
             }`}
           >
-            Supported formats:{" "}
-            <span className="font-mono">host:port:username:password</span>,{" "}
-            <span className="font-mono">host,port,username,password,city</span>,
-            or{" "}
-            <span className="font-mono">
-              host,port,username,password,country,city
-            </span>
-            . Use the city format if you want location to show.
+            Required format:{" "}
+            <span className="font-mono">host:port:username:password</span>.
+            Paste the export exactly like Webshare gives you. No city or
+            location needed.
           </div>
 
           <button
@@ -675,12 +922,53 @@ function ImportModal({ isDark, value, onChange, loading, onClose, onSubmit }) {
             ) : (
               <>
                 <Upload className="h-4 w-4" />
-                Import Profiles
+                Import {lineCount || ""} Profile{lineCount === 1 ? "" : "s"}
               </>
             )}
           </button>
         </form>
       </div>
+    </div>
+  );
+}
+
+function EmptyState({ isDark, onImport }) {
+  return (
+    <div className="mx-auto max-w-sm">
+      <div
+        className={`mx-auto flex h-12 w-12 items-center justify-center rounded-2xl ${
+          isDark
+            ? "bg-white/[0.07] text-white/60"
+            : "bg-[#eee4d5] text-[#5c5348]"
+        }`}
+      >
+        <Network className="h-5 w-5" />
+      </div>
+
+      <div
+        className={`mt-4 text-sm font-semibold ${
+          isDark ? "text-white" : "text-[#201d19]"
+        }`}
+      >
+        No network profiles found
+      </div>
+
+      <div
+        className={`mt-2 text-xs leading-5 ${
+          isDark ? "text-white/42" : "text-[#746b61]"
+        }`}
+      >
+        Import Webshare exported proxies using host:port:username:password.
+      </div>
+
+      <button
+        type="button"
+        onClick={onImport}
+        className={`${primaryButtonClass()} mx-auto mt-5`}
+      >
+        <Upload className="h-4 w-4" />
+        Import Profiles
+      </button>
     </div>
   );
 }
@@ -693,7 +981,7 @@ function SearchBar({ isDark, value, onChange, resultCount, totalCount }) {
       className={`group flex h-[38px] w-full items-center gap-2 rounded-[14px] border px-3 transition sm:w-[330px] lg:w-[380px] ${
         isDark
           ? "border-white/[0.07] bg-white/[0.055] text-white focus-within:border-[#d8c49a]/45 focus-within:bg-white/[0.08] focus-within:ring-4 focus-within:ring-[#d8c49a]/5"
-          : "border-[#eee4d5] bg-white text-[#201d19] shadow-[0_10px_24px_rgba(30,25,18,0.035)] focus-within:border-[#d8c49a] focus-within:ring-4 focus-within:ring-[#d8c49a]/15"
+          : "border-[#eee4d5] bg-white text-[#201d19] shadow-[0_10px_24px_rgba(30,25,18,0.035)] focus-within:border-[#d8c49a] focus-within:ring-4 focus:ring-[#d8c49a]/15"
       }`}
     >
       <Search
@@ -707,7 +995,7 @@ function SearchBar({ isDark, value, onChange, resultCount, totalCount }) {
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="Search proxy, status, account..."
+        placeholder="Search proxy, status, IP, project..."
         className={`h-full min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-[12px] ${
           isDark
             ? "text-white placeholder:text-white/30"
@@ -773,6 +1061,7 @@ function StatusPill({ status, isDark }) {
   const isAssigned = clean === "assigned";
   const isReserved = clean === "reserved";
   const isDisabled = clean === "disabled";
+  const isFailed = clean === "failed";
 
   let className = isDark
     ? "bg-white/[0.08] text-white/55"
@@ -796,7 +1085,7 @@ function StatusPill({ status, isDark }) {
       : "bg-amber-50 text-amber-700";
   }
 
-  if (isDisabled) {
+  if (isDisabled || isFailed) {
     className = isDark
       ? "bg-red-400/10 text-red-300"
       : "bg-red-50 text-red-700";
@@ -808,13 +1097,29 @@ function StatusPill({ status, isDark }) {
     >
       {isAvailable ? (
         <CheckCircle2 className="h-3.5 w-3.5" />
-      ) : isDisabled ? (
+      ) : isDisabled || isFailed ? (
         <CircleOff className="h-3.5 w-3.5" />
       ) : (
         <span className="h-1.5 w-1.5 rounded-full bg-current opacity-70" />
       )}
       {clean}
     </span>
+  );
+}
+
+function Field({ isDark, label, children }) {
+  return (
+    <label className="block">
+      <div
+        className={`mb-1 text-[11px] font-medium ${
+          isDark ? "text-white/38" : "text-[#70675c]"
+        }`}
+      >
+        {label}
+      </div>
+
+      {children}
+    </label>
   );
 }
 
@@ -832,6 +1137,7 @@ function formatDate(value) {
   if (!value) return "-";
 
   const date = new Date(value);
+
   if (Number.isNaN(date.getTime())) return "-";
 
   return date.toLocaleString();
@@ -842,8 +1148,16 @@ function mutedTextClass(isDark) {
 }
 
 function labelClass(isDark) {
-  return `mb-2 block text-xs font-medium ${
+  return `block text-xs font-medium ${
     isDark ? "text-white/62" : "text-[#5c5348]"
+  }`;
+}
+
+function inputClass(isDark) {
+  return `h-10 w-full rounded-[16px] border px-3 text-[13px] outline-none transition ${
+    isDark
+      ? "border-white/[0.10] bg-[#292a2f] text-white placeholder:text-white/25 focus:border-[#d8c49a]/50"
+      : "border-[#e2e8f0] bg-white text-[#171717] placeholder:text-[#94a3b8] focus:border-[#d8c49a]"
   }`;
 }
 
