@@ -394,6 +394,8 @@ export default function TelegramChats() {
   const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
 
+  const [showScrollBottomButton, setShowScrollBottomButton] = useState(false);
+
   const [newMessage, setNewMessage] = useState("");
   const [editingMessageId, setEditingMessageId] = useState("");
 
@@ -564,6 +566,7 @@ export default function TelegramChats() {
     setHasMoreMessages(true);
     setLoadingOlderMessages(false);
     shouldScrollToBottomRef.current = true;
+    setShowScrollBottomButton(false);
 
     const cachedMessages = cacheGet(`tg:messages:${selectedChatId}`);
 
@@ -777,6 +780,8 @@ export default function TelegramChats() {
   }, []);
 
   function selectChat(chatId) {
+    shouldScrollToBottomRef.current = true;
+
     setOpenedHiddenChat(null);
     setSelectedChatId(chatId);
     setEditingMessageId("");
@@ -787,6 +792,10 @@ export default function TelegramChats() {
     if (Array.isArray(cachedMessages)) {
       setMessages(cachedMessages);
       setLoadingMessages(false);
+
+      requestAnimationFrame(() => {
+        scrollToBottomInstant();
+      });
     } else {
       setMessages([]);
     }
@@ -1282,6 +1291,10 @@ export default function TelegramChats() {
 
   function handleMessagesScroll(e) {
     const el = e.currentTarget;
+
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+
+    setShowScrollBottomButton(distanceFromBottom > 220);
 
     if (el.scrollTop <= 80) {
       loadOlderMessages();
@@ -2610,6 +2623,12 @@ export default function TelegramChats() {
     }
   }
 
+  function scrollToLatestMessage() {
+    shouldScrollToBottomRef.current = false;
+    scrollToBottomInstant();
+    setShowScrollBottomButton(false);
+  }
+
   function scrollToBottomInstant() {
     const el = messagesContainerRef.current;
 
@@ -2891,37 +2910,65 @@ export default function TelegramChats() {
                     </div>
                   </div>
 
-                  <div
-                    ref={messagesContainerRef}
-                    onScroll={handleMessagesScroll}
-                    className={`min-h-0 flex-1 overflow-y-auto px-5 py-5 ${
-                      isDark ? "bg-[#202127]" : "bg-[#f4efe6]"
-                    }`}
-                  >
-                    {loadingMessages && messages.length === 0 ? (
-                      <MessageLoading isDark={isDark} />
-                    ) : messages.length === 0 ? (
-                      <ConversationEmpty isDark={isDark} />
-                    ) : (
-                      <div className="space-y-3">
-                        {messages.map((message) => (
-                          <MessageBubble
-                            key={message.id}
-                            message={message}
-                            chatId={selectedChatId}
-                            selectedChat={selectedChat}
-                            isDark={isDark}
-                            busy={messageActionId === message.id}
-                            editing={editingMessageId === message.id}
-                            onOpenImage={openFullImage}
-                            onOpenSenderProfile={openGroupMemberProfile}
-                            onEdit={() => startEdit(message)}
-                            onDelete={() => deleteMessage(message.id)}
-                          />
-                        ))}
-                        <div ref={messagesEndRef} />
-                      </div>
-                    )}
+                  <div className="relative min-h-0 flex-1">
+                    <div
+                      ref={messagesContainerRef}
+                      onScroll={handleMessagesScroll}
+                      className={`h-full overflow-y-auto px-5 py-5 ${
+                        isDark ? "bg-[#202127]" : "bg-[#f4efe6]"
+                      }`}
+                    >
+                      {loadingMessages && messages.length === 0 ? (
+                        <MessageLoading isDark={isDark} />
+                      ) : messages.length === 0 ? (
+                        <ConversationEmpty isDark={isDark} />
+                      ) : (
+                        <div className="space-y-3">
+                          {loadingOlderMessages ? (
+                            <div
+                              className={`py-2 text-center text-xs ${
+                                isDark ? "text-white/35" : "text-[#8d8375]"
+                              }`}
+                            >
+                              Loading older messages...
+                            </div>
+                          ) : null}
+
+                          {messages.map((message) => (
+                            <MessageBubble
+                              key={message.id}
+                              message={message}
+                              chatId={selectedChatId}
+                              selectedChat={selectedChat}
+                              isDark={isDark}
+                              busy={messageActionId === message.id}
+                              editing={editingMessageId === message.id}
+                              onOpenImage={openFullImage}
+                              onOpenSenderProfile={openGroupMemberProfile}
+                              onEdit={() => startEdit(message)}
+                              onDelete={() => deleteMessage(message.id)}
+                            />
+                          ))}
+
+                          <div ref={messagesEndRef} />
+                        </div>
+                      )}
+                    </div>
+
+                    {showScrollBottomButton ? (
+                      <button
+                        type="button"
+                        onClick={scrollToLatestMessage}
+                        className={`absolute bottom-5 right-5 z-30 flex h-12 w-12 items-center justify-center rounded-full border shadow-lg transition hover:scale-105 ${
+                          isDark
+                            ? "border-white/[0.08] bg-[#34343c] text-white hover:bg-[#3f4048]"
+                            : "border-[#e8dece] bg-white text-[#8d8375] hover:bg-[#f7f2ea]"
+                        }`}
+                        title="Scroll to latest"
+                      >
+                        <ChevronDown className="h-6 w-6" />
+                      </button>
+                    ) : null}
                   </div>
 
                   <form
