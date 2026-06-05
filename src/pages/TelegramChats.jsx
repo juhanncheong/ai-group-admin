@@ -4255,6 +4255,7 @@ function ManageMembersPanel({
   onLoadMembers,
   onAddMembers,
   onRemoveMember,
+  onOpenMemberProfile,
   onExportInviteLink,
 }) {
   const [usersText, setUsersText] = useState(() =>
@@ -4444,7 +4445,10 @@ function ManageMembersPanel({
                 {member.canRemove && (
                   <button
                     type="button"
-                    onClick={() => onRemoveGroupMember(member)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRemoveMember?.(member);
+                    }}
                     disabled={groupAction === `remove:${member.id}`}
                     className="shrink-0 text-red-500 disabled:opacity-50"
                   >
@@ -4890,6 +4894,7 @@ function ChatProfileDrawer({
                 onLoadMembers={onLoadGroupMembers}
                 onAddMembers={onAddGroupMembers}
                 onRemoveMember={onRemoveGroupMember}
+                onOpenMemberProfile={onOpenMemberProfile}
                 onExportInviteLink={onExportInviteLink}
               />
             </div>
