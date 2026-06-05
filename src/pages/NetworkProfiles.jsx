@@ -703,8 +703,7 @@ function ProfileRow({
         </div>
 
         <div className={`mt-0.5 text-xs ${mutedTextClass(isDark)}`}>
-          {profile.provider || "webshare"} · {profile.source || "manual"} ·{" "}
-          {profile.type || "http"}
+          proxy · {profile.type || "socks5"}
         </div>
       </td>
 
@@ -750,7 +749,7 @@ function ProfileRow({
         )}
       </td>
 
-      <td className={`px-5 py-3 text-sm ${mutedTextClass(isDark)}`}>
+      <td className={`px-5 py-3 text-xs leading-5 ${mutedTextClass(isDark)}`}>
         {formatDate(profile.lastTestedAt)}
       </td>
 
@@ -889,11 +888,11 @@ function ImportModal({
           </div>
 
           <div className="mt-4 text-xl font-semibold tracking-[-0.03em]">
-            Import Webshare Proxies
+            Import Proxies
           </div>
 
           <div className="mt-1 text-sm text-black/60">
-            Paste exported Webshare lines. One line equals one proxy.
+            Paste proxy lines. One line equals one proxy.
           </div>
         </div>
 
@@ -904,7 +903,7 @@ function ImportModal({
                 value={meta.provider}
                 onChange={(e) => onMetaChange("provider", e.target.value)}
                 className={inputClass(isDark)}
-                placeholder="webshare"
+                placeholder="proxy"
               />
             </Field>
 
@@ -913,7 +912,7 @@ function ImportModal({
                 value={meta.source}
                 onChange={(e) => onMetaChange("source", e.target.value)}
                 className={inputClass(isDark)}
-                placeholder="webshare, project-a, telegram-main..."
+                placeholder="proxy, project-a, telegram-main..."
               />
             </Field>
 
@@ -1017,7 +1016,7 @@ function EmptyState({ isDark, onImport }) {
           isDark ? "text-white/42" : "text-[#746b61]"
         }`}
       >
-        Import Webshare exported proxies using host:port:username:password.
+        Import proxies using host:port:username:password.
       </div>
 
       <button
