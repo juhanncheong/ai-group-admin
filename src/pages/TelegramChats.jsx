@@ -523,7 +523,7 @@ export default function TelegramChats() {
     if (clickedChat?.type === "group") {
       loadGroupMembers(selectedChatId, true);
     }
-  }, [selectedChatId, chats, openedHiddenChat]);
+  }, [selectedChatId]);
 
   useEffect(() => {
     if (!selectedAccountId) return;
@@ -1782,7 +1782,7 @@ export default function TelegramChats() {
     try {
       const photoMembers = members
         .filter((member) => member?.id && member?.hasPhoto)
-        .slice(0, 30); // safety limit, change to 50 if needed
+        .slice(0, 30); // safety limit
 
       for (const member of photoMembers) {
         if (memberPhotoQueueRef.current.token !== token) {
@@ -1791,7 +1791,14 @@ export default function TelegramChats() {
 
         const photoKey = `${chatId}:${member.id}`;
 
-        if (memberPhotoMap[photoKey]) {
+        let alreadyLoaded = false;
+
+        setMemberPhotoMap((prev) => {
+          alreadyLoaded = !!prev[photoKey];
+          return prev;
+        });
+
+        if (alreadyLoaded) {
           continue;
         }
 
@@ -1803,10 +1810,15 @@ export default function TelegramChats() {
           const img = new window.Image();
 
           img.onload = () => {
-            setMemberPhotoMap((prev) => ({
-              ...prev,
-              [photoKey]: url,
-            }));
+            setMemberPhotoMap((prev) => {
+              if (prev[photoKey]) return prev;
+
+              return {
+                ...prev,
+                [photoKey]: url,
+              };
+            });
+
             resolve();
           };
 
@@ -1836,9 +1848,10 @@ export default function TelegramChats() {
         setGroupMembers(cached);
         setMessages((prev) => enrichMessagesWithMembers(prev, cached));
         queueMemberPhotoLoading(chatId, cached);
+        return;
       }
 
-      if (!silent && !hasCache) {
+      if (!silent) {
         setLoadingGroupMembers(true);
       }
 
