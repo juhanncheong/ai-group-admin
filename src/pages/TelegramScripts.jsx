@@ -475,11 +475,15 @@ export default function TelegramScripts() {
       const formData = new FormData();
       formData.append("image", step.imageFile);
 
-      const res = await api.post("/api/uploads/ai-image", formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
+      const res = await api.post(
+        "/api/telegram-scripts/upload-image",
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
         },
-      });
+      );
 
       uploadedSteps.push({
         ...step,
@@ -620,7 +624,7 @@ export default function TelegramScripts() {
 
       toast.success(
         runMode === "send_now"
-          ? "Script queued to run now"
+          ? "Script added to scheduler"
           : "Script scheduled",
       );
 
@@ -736,7 +740,7 @@ export default function TelegramScripts() {
               className={topPrimaryButtonClass()}
             >
               <Play className="h-3.5 w-3.5" />
-              Script target group
+              Schedule Script
             </button>
           </div>
         </div>
@@ -1048,8 +1052,8 @@ export default function TelegramScripts() {
               setTargetModalOpen(false);
             }
           }}
-          title="Script target group"
-          description="Choose a saved script, load groups from one connected account, then run now or schedule later."
+          title="Schedule script"
+          description="Choose a saved script and target group. The normal scheduler will send each script step."
           maxWidth="max-w-3xl"
         >
           <form onSubmit={createScriptRun} className="space-y-4">

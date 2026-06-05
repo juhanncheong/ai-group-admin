@@ -434,7 +434,7 @@ export default function ScheduledMessages() {
     const formData = new FormData();
     formData.append("image", imageFile);
 
-    const res = await api.post("/api/uploads/ai-image", formData, {
+    const res = await api.post("/api/telegram-scripts/upload-image", formData, {
       headers: {
         "Content-Type": "multipart/form-data",
       },
