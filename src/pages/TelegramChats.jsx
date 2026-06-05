@@ -1844,7 +1844,9 @@ export default function TelegramChats() {
       setSelectedMemberProfile(member);
 
       const res = await api.get(
-        `/api/telegram-chats/${selectedChatId}/group/members/${member.id}/profile`,
+        `/api/telegram-chats/${selectedChatId}/group/members/${member.id}/profile?accessHash=${encodeURIComponent(
+          member.accessHash || "",
+        )}`,
       );
 
       setSelectedMemberProfile(res.data?.data || member);
@@ -1865,7 +1867,9 @@ export default function TelegramChats() {
 
     try {
       const res = await api.post(
-        `/api/telegram-chats/${selectedChatId}/group/members/${member.id}/open-chat`,
+        `/api/telegram-chats/${selectedChatId}/group/members/${member.id}/open-chat?accessHash=${encodeURIComponent(
+          member.accessHash || "",
+        )}`,
       );
 
       const chat = res.data?.data;
@@ -4373,7 +4377,7 @@ function ManageMembersPanel({
                 <button
                   type="button"
                   onClick={() => onOpenMemberProfile?.(member)}
-                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-2xl text-left"
                 >
                   <div
                     className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full text-xs font-bold text-white"
@@ -4386,9 +4390,10 @@ function ManageMembersPanel({
                   >
                     {member.hasPhoto ? (
                       <img
-                        src={getMemberPhotoUrl(chat?._id, member.id)}
+                        src={getMemberPhotoUrl(chat?._id, member)}
                         alt=""
                         className="absolute inset-0 z-[2] h-full w-full object-cover"
+                        loading="lazy"
                         onError={(e) => {
                           e.currentTarget.style.display = "none";
                         }}
