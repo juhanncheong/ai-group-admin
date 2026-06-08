@@ -440,7 +440,7 @@ export default function NetworkProfiles() {
             }`}
           >
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1400px] border-collapse">
+              <table className="w-full min-w-[1200px] border-collapse">
                 <thead>
                   <tr
                     className={
@@ -451,11 +451,10 @@ export default function NetworkProfiles() {
                   >
                     <Th>No.</Th>
                     <Th>Profile</Th>
-                    <Th>Proxy Address</Th>
                     <Th>Detected IP</Th>
                     <Th>Status</Th>
-                    <Th>Assigned Account</Th>
-                    <Th>Last Tested</Th>
+                    <Th>Assigned</Th>
+                    <Th>Tested</Th>
                     <Th>Health</Th>
                     <Th align="right">Actions</Th>
                   </tr>
@@ -464,7 +463,7 @@ export default function NetworkProfiles() {
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={9} className="px-5 py-12 text-center">
+                      <td colSpan={8} className="px-5 py-12 text-center">
                         <div
                           className={`inline-flex items-center gap-2 text-sm ${
                             isDark ? "text-white/50" : "text-[#746b61]"
@@ -492,7 +491,7 @@ export default function NetworkProfiles() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={9} className="px-5 py-12 text-center">
+                      <td colSpan={8} className="px-5 py-12 text-center">
                         <EmptyState
                           isDark={isDark}
                           onImport={() => {
@@ -704,16 +703,6 @@ function ProfileRow({
 
         <div className={`mt-0.5 text-xs ${mutedTextClass(isDark)}`}>
           proxy · {profile.type || "socks5"}
-        </div>
-      </td>
-
-      <td className="px-5 py-3">
-        <div className="font-mono text-xs">
-          {profile.host}:{profile.port}
-        </div>
-
-        <div className={`mt-0.5 text-xs ${mutedTextClass(isDark)}`}>
-          {profile.username ? `User: ${profile.username}` : "No username"}
         </div>
       </td>
 
