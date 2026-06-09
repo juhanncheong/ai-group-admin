@@ -1637,16 +1637,6 @@ function CustomSelect({
                 ? selectedOption.label
                 : placeholder}
           </span>
-
-          {selectedOption?.description && (
-            <span
-              className={`mt-0.5 block truncate text-[11px] ${
-                isDark ? "text-white/35" : "text-[#8d8375]"
-              }`}
-            >
-              {selectedOption.description}
-            </span>
-          )}
         </span>
 
         {loading ? (
