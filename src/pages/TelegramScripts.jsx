@@ -1203,14 +1203,6 @@ export default function TelegramScripts() {
                           ? `${targetTelegramChatIds.length} group(s) selected`
                           : "Select target groups"}
                   </span>
-
-                  <span
-                    className={`mt-0.5 block truncate text-[11px] ${
-                      isDark ? "text-white/35" : "text-[#8d8375]"
-                    }`}
-                  >
-                    Opens group selector on the right
-                  </span>
                 </span>
 
                 <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 opacity-60" />
