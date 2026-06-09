@@ -2065,13 +2065,7 @@ function ScriptPreview({ script, isDark }) {
         isDark ? "bg-[#292a2f]" : "bg-[#f7f2ea]"
       }`}
     >
-      <div className={smallTitleClass(isDark)}>{script.name}</div>
-
-      <div className={hintClass(isDark)}>
-        Speed: {script.gapSpeedMode || "normal"}
-      </div>
-
-      <div className="mt-2 space-y-2">
+      <div className="space-y-2">
         {(script.steps || []).map((step, index) => {
           const account =
             step.telegramAccountId?.label ||
