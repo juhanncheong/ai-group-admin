@@ -1715,17 +1715,27 @@ function NetworkIpCell({ account, isDark, onShowTooltip, onHideTooltip }) {
 
   function handleEnter(e) {
     const rect = e.currentTarget.getBoundingClientRect();
+
     const bubbleWidth = 320;
+    const bubbleHeight = 360;
     const gap = 12;
+    const screenPadding = 12;
 
     const showOnLeft = rect.right + gap + bubbleWidth > window.innerWidth;
+
+    const preferredTop = rect.top + rect.height / 2 - bubbleHeight / 2;
+
+    const safeTop = Math.min(
+      window.innerHeight - bubbleHeight - screenPadding,
+      Math.max(screenPadding, preferredTop),
+    );
 
     onShowTooltip({
       profile,
       position: {
-        top: Math.max(12, rect.top - 12),
+        top: safeTop,
         left: showOnLeft
-          ? Math.max(12, rect.left - bubbleWidth - gap)
+          ? Math.max(screenPadding, rect.left - bubbleWidth - gap)
           : rect.right + gap,
       },
     });
@@ -1892,17 +1902,27 @@ function DeviceModelCell({ account, isDark, onShowTooltip, onHideTooltip }) {
 
   function handleEnter(e) {
     const rect = e.currentTarget.getBoundingClientRect();
+
     const bubbleWidth = 320;
+    const bubbleHeight = 360;
     const gap = 12;
+    const screenPadding = 12;
 
     const showOnLeft = rect.right + gap + bubbleWidth > window.innerWidth;
+
+    const preferredTop = rect.top + rect.height / 2 - bubbleHeight / 2;
+
+    const safeTop = Math.min(
+      window.innerHeight - bubbleHeight - screenPadding,
+      Math.max(screenPadding, preferredTop),
+    );
 
     onShowTooltip({
       account,
       position: {
-        top: Math.max(12, rect.top - 12),
+        top: safeTop,
         left: showOnLeft
-          ? Math.max(12, rect.left - bubbleWidth - gap)
+          ? Math.max(screenPadding, rect.left - bubbleWidth - gap)
           : rect.right + gap,
       },
     });
