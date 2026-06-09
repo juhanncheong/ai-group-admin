@@ -90,7 +90,7 @@ function createEmptyStep(order = 1) {
     imageFile: null,
     imagePreviewUrl: "",
     caption: "",
-    gapSecondsAfter: 0,
+    gapMinutesAfter: 0,
   };
 }
 
@@ -129,6 +129,8 @@ export default function TelegramScripts() {
 
   const [scriptModalOpen, setScriptModalOpen] = useState(false);
   const [targetModalOpen, setTargetModalOpen] = useState(false);
+  const [showScheduleSteps, setShowScheduleSteps] = useState(false);
+  const [targetDrawerOpen, setTargetDrawerOpen] = useState(false);
 
   const [editingScriptId, setEditingScriptId] = useState("");
   const [scriptName, setScriptName] = useState("");
@@ -143,8 +145,7 @@ export default function TelegramScripts() {
   const [targetSourceAccountId, setTargetSourceAccountId] = useState(() =>
     getRememberedValue(CACHE_KEYS.targetSourceAccountId, ""),
   );
-  const [targetTelegramChatId, setTargetTelegramChatId] = useState("");
-  const [targetTitle, setTargetTitle] = useState("");
+  const [targetTelegramChatIds, setTargetTelegramChatIds] = useState([]);
   const [runMode, setRunMode] = useState("send_now");
   const [startAt, setStartAt] = useState("");
 
@@ -202,8 +203,7 @@ export default function TelegramScripts() {
       }
     } else {
       setTargetChats([]);
-      setTargetTelegramChatId("");
-      setTargetTitle("");
+      setTargetTelegramChatIds([]);
     }
   }, [targetSourceAccountId]);
 
@@ -340,25 +340,12 @@ export default function TelegramScripts() {
       cacheSet(cacheKey, groupsOnly);
       setTargetChats(groupsOnly);
 
-      setTargetTelegramChatId((current) => {
-        if (
-          current &&
-          groupsOnly.some((chat) => String(chat.chatId) === String(current))
-        ) {
-          return current;
-        }
+      setTargetTelegramChatIds((current) => {
+        if (!Array.isArray(current)) return [];
 
-        return "";
-      });
-
-      setTargetTitle((current) => {
-        if (!targetTelegramChatId) return current;
-
-        const selected = groupsOnly.find(
-          (chat) => String(chat.chatId) === String(targetTelegramChatId),
+        return current.filter((chatId) =>
+          groupsOnly.some((chat) => String(chat.chatId) === String(chatId)),
         );
-
-        return selected?.title || "";
       });
     } catch (err) {
       console.error("Load target chats error:", err);
@@ -394,6 +381,12 @@ export default function TelegramScripts() {
     setScriptModalOpen(true);
   }
 
+  function openScheduleScriptModal() {
+    setShowScheduleSteps(false);
+    setTargetDrawerOpen(false);
+    setTargetModalOpen(true);
+  }
+
   function addStep() {
     setSteps((prev) => [...prev, createEmptyStep(prev.length + 1)]);
   }
@@ -419,6 +412,21 @@ export default function TelegramScripts() {
     );
   }
 
+  function toggleTargetGroup(chatId) {
+    const cleanChatId = String(chatId || "").trim();
+    if (!cleanChatId) return;
+
+    setTargetTelegramChatIds((prev) => {
+      const current = Array.isArray(prev) ? prev : [];
+
+      if (current.includes(cleanChatId)) {
+        return current.filter((id) => id !== cleanChatId);
+      }
+
+      return [...current, cleanChatId];
+    });
+  }
+
   function buildCleanSteps() {
     return steps.map((step, index) => ({
       order: index + 1,
@@ -429,7 +437,10 @@ export default function TelegramScripts() {
       imageFile: step.imageFile || null,
       imagePreviewUrl: step.imagePreviewUrl || "",
       caption: String(step.caption || "").trim(),
-      gapSecondsAfter: Math.max(Number(step.gapSecondsAfter) || 0, 0),
+
+      // Manual override in minutes.
+      // 0 means use script speed random gap.
+      gapMinutesAfter: Math.max(Number(step.gapMinutesAfter) || 0, 0),
     }));
   }
 
@@ -557,7 +568,10 @@ export default function TelegramScripts() {
             imageFile: null,
             imagePreviewUrl: step.imageUrl || "",
             caption: step.caption || "",
-            gapSecondsAfter: Number(step.gapSecondsAfter) || 0,
+            gapMinutesAfter:
+              Number(step.gapMinutesAfter) ||
+              Number(step.gapSecondsAfter) / 60 ||
+              0,
           }))
         : [createEmptyStep(1)];
 
@@ -596,8 +610,8 @@ export default function TelegramScripts() {
       return;
     }
 
-    if (!targetTelegramChatId) {
-      toast.error("Please select target group");
+    if (!targetTelegramChatIds.length) {
+      toast.error("Please select at least one target group");
       return;
     }
 
@@ -609,10 +623,18 @@ export default function TelegramScripts() {
     try {
       setCreatingRun(true);
 
+      const selectedTargetTitles = targetTelegramChatIds.map((chatId) => {
+        const chat = targetChats.find(
+          (item) => String(item.chatId) === String(chatId),
+        );
+
+        return chat?.title || String(chatId);
+      });
+
       const payload = {
         scriptId: selectedScriptId,
-        targetTelegramChatId,
-        targetTitle,
+        targetTelegramChatIds,
+        targetTitles: selectedTargetTitles,
         mode: runMode,
       };
 
@@ -629,6 +651,7 @@ export default function TelegramScripts() {
       );
 
       setStartAt("");
+      setTargetTelegramChatIds([]);
       setTargetModalOpen(false);
       setActiveView("runs");
       await loadPageData();
@@ -736,7 +759,7 @@ export default function TelegramScripts() {
 
             <button
               type="button"
-              onClick={() => setTargetModalOpen(true)}
+              onClick={openScheduleScriptModal}
               className={topPrimaryButtonClass()}
             >
               <Play className="h-3.5 w-3.5" />
@@ -817,17 +840,17 @@ export default function TelegramScripts() {
                     {
                       value: "quick",
                       label: "Quick",
-                      description: "2-5 min between steps",
+                      description: "1-2 min between steps",
                     },
                     {
                       value: "normal",
                       label: "Normal",
-                      description: "4-10 min between steps",
+                      description: "2-5 min between steps",
                     },
                     {
                       value: "slow",
                       label: "Slow",
-                      description: "6-15 min between steps",
+                      description: "4-8 min between steps",
                     },
                   ]}
                   onChange={setGapSpeedMode}
@@ -860,7 +883,7 @@ export default function TelegramScripts() {
                     </button>
                   </div>
 
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid gap-3 sm:grid-cols-3">
                     <div>
                       <label className={labelClass(isDark)}>
                         Sending account
@@ -901,6 +924,31 @@ export default function TelegramScripts() {
                         ]}
                         onChange={(value) => updateStep(index, { type: value })}
                       />
+                    </div>
+
+                    <div>
+                      <label className={labelClass(isDark)}>Gap override</label>
+
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={step.gapMinutesAfter || ""}
+                        onChange={(e) =>
+                          updateStep(index, {
+                            gapMinutesAfter: Math.max(
+                              Number(e.target.value) || 0,
+                              0,
+                            ),
+                          })
+                        }
+                        placeholder="Auto"
+                        className={inputClass(isDark)}
+                      />
+
+                      <div className={hintClass(isDark)}>
+                        Minutes after this step. Leave empty/0 to use speed.
+                      </div>
                     </div>
                   </div>
 
@@ -1071,7 +1119,45 @@ export default function TelegramScripts() {
             </div>
 
             {selectedScript && (
-              <ScriptPreview script={selectedScript} isDark={isDark} />
+              <div
+                className={`rounded-[18px] border p-3 ${
+                  isDark
+                    ? "border-white/[0.08] bg-[#292a2f]"
+                    : "border-[#eadfce] bg-[#f7f2ea]"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className={smallTitleClass(isDark)}>
+                      {selectedScript.name || "Selected script"}
+                    </div>
+
+                    <div className={hintClass(isDark)}>
+                      {selectedScript.steps?.length || 0} step(s) · Speed:{" "}
+                      {selectedScript.gapSpeedMode || "normal"}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowScheduleSteps((prev) => !prev)}
+                    className={secondaryButton(isDark)}
+                  >
+                    {showScheduleSteps ? "Hide steps" : "Show steps"}
+                    <ChevronDown
+                      className={`h-3.5 w-3.5 transition ${
+                        showScheduleSteps ? "rotate-180" : ""
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {showScheduleSteps && (
+                  <div className="mt-3">
+                    <ScriptPreview script={selectedScript} isDark={isDark} />
+                  </div>
+                )}
+              </div>
             )}
 
             <div>
@@ -1095,31 +1181,59 @@ export default function TelegramScripts() {
             </div>
 
             <div>
-              <label className={labelClass(isDark)}>Target group</label>
+              <label className={labelClass(isDark)}>Target groups</label>
 
-              <CustomSelect
-                isDark={isDark}
-                value={targetTelegramChatId}
-                placeholder={
-                  !targetSourceAccountId
-                    ? "Select account first"
-                    : loadingTargetChats
-                      ? "Loading groups..."
-                      : "Select group"
-                }
-                options={targetChatOptions}
-                emptyText="No groups synced"
+              <button
+                type="button"
+                onClick={() => setTargetDrawerOpen(true)}
                 disabled={!targetSourceAccountId || loadingTargetChats}
-                loading={loadingTargetChats}
-                onChange={(value) => {
-                  const selected = targetChats.find(
-                    (chat) => String(chat.chatId) === String(value),
-                  );
+                className={`flex min-h-[48px] w-full items-center justify-between gap-3 rounded-[16px] border px-4 text-left text-[14px] outline-none transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                  isDark
+                    ? "border-white/[0.10] bg-[#24252b] text-white hover:bg-[#202126]"
+                    : "border-[#eadfce] bg-[#fbf7f0] text-[#201d19] hover:bg-white"
+                }`}
+              >
+                <span className="min-w-0">
+                  <span className="block truncate">
+                    {!targetSourceAccountId
+                      ? "Select account first"
+                      : loadingTargetChats
+                        ? "Loading groups..."
+                        : targetTelegramChatIds.length
+                          ? `${targetTelegramChatIds.length} group(s) selected`
+                          : "Select target groups"}
+                  </span>
 
-                  setTargetTelegramChatId(value);
-                  setTargetTitle(selected?.title || "");
-                }}
-              />
+                  <span
+                    className={`mt-0.5 block truncate text-[11px] ${
+                      isDark ? "text-white/35" : "text-[#8d8375]"
+                    }`}
+                  >
+                    Opens group selector on the right
+                  </span>
+                </span>
+
+                <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 opacity-60" />
+              </button>
+
+              {targetTelegramChatIds.length > 0 && (
+                <div className={hintClass(isDark)}>
+                  Selected:{" "}
+                  {targetTelegramChatIds
+                    .map((chatId) => {
+                      const chat = targetChats.find(
+                        (item) => String(item.chatId) === String(chatId),
+                      );
+
+                      return chat?.title || chatId;
+                    })
+                    .slice(0, 3)
+                    .join(", ")}
+                  {targetTelegramChatIds.length > 3
+                    ? ` +${targetTelegramChatIds.length - 3} more`
+                    : ""}
+                </div>
+              )}
             </div>
 
             <div>
@@ -1176,7 +1290,9 @@ export default function TelegramScripts() {
               <button
                 type="submit"
                 disabled={
-                  creatingRun || !selectedScriptId || !targetTelegramChatId
+                  creatingRun ||
+                  !selectedScriptId ||
+                  !targetTelegramChatIds.length
                 }
                 className={primaryButtonInline()}
               >
@@ -1191,6 +1307,17 @@ export default function TelegramScripts() {
               </button>
             </div>
           </form>
+
+          <TargetGroupsDrawer
+            isDark={isDark}
+            open={targetDrawerOpen}
+            onClose={() => setTargetDrawerOpen(false)}
+            targetSourceAccountId={targetSourceAccountId}
+            loadingTargetChats={loadingTargetChats}
+            targetChatOptions={targetChatOptions}
+            targetTelegramChatIds={targetTelegramChatIds}
+            toggleTargetGroup={toggleTargetGroup}
+          />
         </Modal>
       </div>
     </Shell>
@@ -1749,6 +1876,188 @@ function Modal({
   );
 }
 
+function TargetGroupsDrawer({
+  isDark,
+  open,
+  onClose,
+  targetSourceAccountId,
+  loadingTargetChats,
+  targetChatOptions,
+  targetTelegramChatIds,
+  toggleTargetGroup,
+}) {
+  const [query, setQuery] = useState("");
+
+  const filteredOptions = useMemo(() => {
+    const cleanQuery = query.trim().toLowerCase();
+
+    if (!cleanQuery) return targetChatOptions;
+
+    return targetChatOptions.filter((option) => {
+      const label = String(option.label || "").toLowerCase();
+      const description = String(option.description || "").toLowerCase();
+
+      return label.includes(cleanQuery) || description.includes(cleanQuery);
+    });
+  }, [targetChatOptions, query]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[90]">
+      <button
+        type="button"
+        aria-label="Close target groups drawer"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/45"
+      />
+
+      <div
+        className={`absolute bottom-0 right-0 top-0 flex w-full max-w-md flex-col shadow-2xl ${
+          isDark ? "bg-[#34343c]" : "bg-white"
+        }`}
+      >
+        <div
+          className={`flex items-start justify-between gap-3 border-b p-4 ${
+            isDark ? "border-white/[0.07]" : "border-[#f1e8db]"
+          }`}
+        >
+          <div>
+            <h3 className={titleClass(isDark)}>Select target groups</h3>
+
+            <p className={paragraphClass(isDark)}>
+              Choose one or multiple groups to run this script.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className={iconButton(isDark)}
+            title="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="border-b p-4">
+          <div
+            className={`flex min-h-[42px] items-center gap-2 rounded-[14px] px-3 ${
+              isDark ? "bg-[#292a2f]" : "bg-[#f7f2ea]"
+            }`}
+          >
+            <Search
+              className={`h-3.5 w-3.5 ${
+                isDark ? "text-white/35" : "text-[#8d8375]"
+              }`}
+            />
+
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search groups..."
+              className={`w-full bg-transparent text-[13px] outline-none ${
+                isDark
+                  ? "text-white placeholder:text-white/25"
+                  : "text-[#201d19] placeholder:text-[#aaa096]"
+              }`}
+            />
+          </div>
+
+          <div className={hintClass(isDark)}>
+            Selected: {targetTelegramChatIds.length} group(s)
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          {!targetSourceAccountId || loadingTargetChats ? (
+            <div
+              className={`rounded-[16px] p-4 text-[12px] ${
+                isDark
+                  ? "bg-white/[0.04] text-white/45"
+                  : "bg-[#f7f2ea] text-[#70675c]"
+              }`}
+            >
+              {!targetSourceAccountId
+                ? "Select account first."
+                : "Loading groups..."}
+            </div>
+          ) : filteredOptions.length ? (
+            <div className="space-y-2">
+              {filteredOptions.map((option) => {
+                const selected = targetTelegramChatIds.includes(
+                  String(option.value),
+                );
+
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => toggleTargetGroup(option.value)}
+                    className={`flex min-h-[48px] w-full items-center justify-between gap-3 rounded-[14px] px-3 text-left text-[12px] transition ${
+                      selected
+                        ? "bg-[#d8c49a] text-[#171717]"
+                        : isDark
+                          ? "bg-white/[0.04] text-white/65 hover:bg-white/[0.07]"
+                          : "bg-[#f7f2ea] text-[#201d19] hover:bg-[#efe6d8]"
+                    }`}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">
+                        {option.label}
+                      </span>
+
+                      {option.description && (
+                        <span
+                          className={`mt-0.5 block truncate text-[11px] ${
+                            selected
+                              ? "text-[#171717]/60"
+                              : isDark
+                                ? "text-white/35"
+                                : "text-[#8d8375]"
+                          }`}
+                        >
+                          {option.description}
+                        </span>
+                      )}
+                    </span>
+
+                    {selected && <Check className="h-4 w-4 shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div
+              className={`rounded-[16px] p-4 text-center text-[12px] ${
+                isDark
+                  ? "bg-white/[0.04] text-white/45"
+                  : "bg-[#f7f2ea] text-[#70675c]"
+              }`}
+            >
+              No groups found.
+            </div>
+          )}
+        </div>
+
+        <div
+          className={`border-t p-4 ${
+            isDark ? "border-white/[0.07]" : "border-[#f1e8db]"
+          }`}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            className={primaryButtonInline()}
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ScriptPreview({ script, isDark }) {
   return (
     <div
@@ -1793,7 +2102,11 @@ function ScriptPreview({ script, isDark }) {
                   : step.text}
               </div>
 
-              <div className="mt-1 opacity-50">Uses script speed setting</div>
+              <div className="mt-1 opacity-50">
+                {Number(step.gapMinutesAfter || 0) > 0
+                  ? `Manual gap after this step: ${step.gapMinutesAfter} min`
+                  : "Uses script speed setting"}
+              </div>
             </div>
           );
         })}

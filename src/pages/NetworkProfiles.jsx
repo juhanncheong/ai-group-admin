@@ -697,9 +697,7 @@ function ProfileRow({
       </td>
 
       <td className="px-5 py-3">
-        <div className="text-sm font-semibold">
-          {profile.name || "Network Profile"}
-        </div>
+        <div className="text-sm">{profile.name || "Network Profile"}</div>
 
         <div className={`mt-0.5 text-xs ${mutedTextClass(isDark)}`}>
           proxy · {profile.type || "socks5"}
