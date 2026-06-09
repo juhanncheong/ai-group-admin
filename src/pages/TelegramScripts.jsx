@@ -30,7 +30,6 @@ const CACHE_KEYS = {
   runs: "telegramScripts:runs",
   targetChats: "telegramScripts:targetChats",
   selectedScriptId: "telegramScripts:selectedScriptId",
-  targetSourceAccountId: "telegramScripts:targetSourceAccountId",
   activeView: "telegramScripts:activeView",
 };
 
@@ -114,12 +113,7 @@ export default function TelegramScripts() {
     return cacheGet(CACHE_KEYS.runs) || [];
   });
 
-  const [targetChats, setTargetChats] = useState(() => {
-    const accountId = getRememberedValue(CACHE_KEYS.targetSourceAccountId, "");
-    if (!accountId) return [];
-
-    return cacheGet(`${CACHE_KEYS.targetChats}:${accountId}`) || [];
-  });
+  const [targetChats, setTargetChats] = useState([]);
 
   const [loading, setLoading] = useState(false);
   const [savingScript, setSavingScript] = useState(false);
@@ -140,10 +134,6 @@ export default function TelegramScripts() {
 
   const [selectedScriptId, setSelectedScriptId] = useState(() =>
     getRememberedValue(CACHE_KEYS.selectedScriptId, ""),
-  );
-
-  const [targetSourceAccountId, setTargetSourceAccountId] = useState(() =>
-    getRememberedValue(CACHE_KEYS.targetSourceAccountId, ""),
   );
   const [targetTelegramChatIds, setTargetTelegramChatIds] = useState([]);
   const [runMode, setRunMode] = useState("send_now");
@@ -190,24 +180,6 @@ export default function TelegramScripts() {
   }, []);
 
   useEffect(() => {
-    if (targetSourceAccountId) {
-      const cached = cacheGet(
-        `${CACHE_KEYS.targetChats}:${targetSourceAccountId}`,
-      );
-
-      if (Array.isArray(cached)) {
-        setTargetChats(cached);
-        loadTargetChats(targetSourceAccountId, { silent: true });
-      } else {
-        loadTargetChats(targetSourceAccountId, { silent: false });
-      }
-    } else {
-      setTargetChats([]);
-      setTargetTelegramChatIds([]);
-    }
-  }, [targetSourceAccountId]);
-
-  useEffect(() => {
     rememberValue(CACHE_KEYS.activeView, activeView);
   }, [activeView]);
 
@@ -216,8 +188,17 @@ export default function TelegramScripts() {
   }, [selectedScriptId]);
 
   useEffect(() => {
-    rememberValue(CACHE_KEYS.targetSourceAccountId, targetSourceAccountId);
-  }, [targetSourceAccountId]);
+    if (targetModalOpen && selectedScriptId) {
+      loadCommonTargetGroups(selectedScriptId, { silent: false });
+    }
+
+    if (targetModalOpen && !selectedScriptId) {
+      setTargetChats([]);
+      setTargetTelegramChatIds([]);
+    }
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetModalOpen, selectedScriptId]);
 
   async function loadPageData(options = {}) {
     const cachedAccounts = cacheGet(CACHE_KEYS.accounts);
@@ -273,26 +254,6 @@ export default function TelegramScripts() {
 
         return scriptList[0]?._id || "";
       });
-
-      setTargetSourceAccountId((current) => {
-        if (
-          current &&
-          accountList.some(
-            (account) =>
-              account._id === current &&
-              account.isConnected &&
-              account.status === "connected",
-          )
-        ) {
-          return current;
-        }
-
-        const firstConnected = accountList.find(
-          (account) => account.isConnected && account.status === "connected",
-        );
-
-        return firstConnected?._id || "";
-      });
     } catch (err) {
       console.error("Load Telegram scripts page error:", err);
 
@@ -310,57 +271,56 @@ export default function TelegramScripts() {
     }
   }
 
-  async function loadTargetChats(accountId, options = {}) {
-    if (!accountId) return;
+  async function loadCommonTargetGroups(scriptId, options = {}) {
+    if (!scriptId) {
+      setTargetChats([]);
+      setTargetTelegramChatIds([]);
+      return;
+    }
 
-    const cacheKey = `${CACHE_KEYS.targetChats}:${accountId}`;
+    const cacheKey = `${CACHE_KEYS.targetChats}:common:${scriptId}`;
     const cached = cacheGet(cacheKey);
     const hasCache = Array.isArray(cached);
-    const silent = options.silent ?? hasCache;
+    const silent = options.silent ?? false;
 
     try {
       if (hasCache) {
         setTargetChats(cached);
       }
 
-      if (!silent) {
+      if (!silent || !hasCache) {
         setLoadingTargetChats(true);
       }
 
       const res = await api.get(
-        `/api/telegram-chats?telegramAccountId=${accountId}`,
+        `/api/telegram-scripts/${scriptId}/common-target-groups`,
       );
 
-      const chatList = Array.isArray(res.data?.data) ? res.data.data : [];
+      const groupList = Array.isArray(res.data?.data) ? res.data.data : [];
 
-      const groupsOnly = chatList.filter((chat) =>
-        ["group", "supergroup"].includes(String(chat.type || "").toLowerCase()),
-      );
-
-      cacheSet(cacheKey, groupsOnly);
-      setTargetChats(groupsOnly);
+      cacheSet(cacheKey, groupList);
+      setTargetChats(groupList);
 
       setTargetTelegramChatIds((current) => {
         if (!Array.isArray(current)) return [];
 
         return current.filter((chatId) =>
-          groupsOnly.some((chat) => String(chat.chatId) === String(chatId)),
+          groupList.some((chat) => String(chat.chatId) === String(chatId)),
         );
       });
     } catch (err) {
-      console.error("Load target chats error:", err);
+      console.error("Load common target groups error:", err);
 
-      if (!silent) {
-        toast.error(
-          err?.response?.data?.message ||
-            err?.response?.data?.error ||
-            "Failed to load target groups",
-        );
-      }
+      toast.error(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Failed to load valid target groups",
+      );
+
+      setTargetChats([]);
+      setTargetTelegramChatIds([]);
     } finally {
-      if (!silent) {
-        setLoadingTargetChats(false);
-      }
+      setLoadingTargetChats(false);
     }
   }
 
@@ -384,6 +344,8 @@ export default function TelegramScripts() {
   function openScheduleScriptModal() {
     setShowScheduleSteps(false);
     setTargetDrawerOpen(false);
+    setTargetTelegramChatIds([]);
+    setTargetChats([]);
     setTargetModalOpen(true);
   }
 
@@ -1161,32 +1123,12 @@ export default function TelegramScripts() {
             )}
 
             <div>
-              <label className={labelClass(isDark)}>
-                Load target groups from account
-              </label>
-
-              <CustomSelect
-                isDark={isDark}
-                value={targetSourceAccountId}
-                placeholder="Select account"
-                options={accountOptions}
-                emptyText="No connected accounts"
-                onChange={(value) => setTargetSourceAccountId(value)}
-              />
-
-              <div className={hintClass(isDark)}>
-                This only loads the group list. Each script account must also be
-                inside the selected group.
-              </div>
-            </div>
-
-            <div>
               <label className={labelClass(isDark)}>Target groups</label>
 
               <button
                 type="button"
                 onClick={() => setTargetDrawerOpen(true)}
-                disabled={!targetSourceAccountId || loadingTargetChats}
+                disabled={!selectedScriptId || loadingTargetChats}
                 className={`flex min-h-[48px] w-full items-center justify-between gap-3 rounded-[16px] border px-4 text-left text-[14px] outline-none transition disabled:cursor-not-allowed disabled:opacity-60 ${
                   isDark
                     ? "border-white/[0.10] bg-[#24252b] text-white hover:bg-[#202126]"
@@ -1195,13 +1137,15 @@ export default function TelegramScripts() {
               >
                 <span className="min-w-0">
                   <span className="block truncate">
-                    {!targetSourceAccountId
-                      ? "Select account first"
+                    {!selectedScriptId
+                      ? "Select script first"
                       : loadingTargetChats
-                        ? "Loading groups..."
+                        ? "Scanning common groups..."
                         : targetTelegramChatIds.length
-                          ? `${targetTelegramChatIds.length} group(s) selected`
-                          : "Select target groups"}
+                          ? `${targetTelegramChatIds.length} valid group(s) selected`
+                          : targetChats.length
+                            ? "Select valid target groups"
+                            : "No common groups found"}
                   </span>
                 </span>
 
@@ -1304,7 +1248,6 @@ export default function TelegramScripts() {
             isDark={isDark}
             open={targetDrawerOpen}
             onClose={() => setTargetDrawerOpen(false)}
-            targetSourceAccountId={targetSourceAccountId}
             loadingTargetChats={loadingTargetChats}
             targetChatOptions={targetChatOptions}
             targetTelegramChatIds={targetTelegramChatIds}
@@ -1872,7 +1815,6 @@ function TargetGroupsDrawer({
   isDark,
   open,
   onClose,
-  targetSourceAccountId,
   loadingTargetChats,
   targetChatOptions,
   targetTelegramChatIds,
@@ -1962,7 +1904,7 @@ function TargetGroupsDrawer({
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
-          {!targetSourceAccountId || loadingTargetChats ? (
+          {loadingTargetChats ? (
             <div
               className={`rounded-[16px] p-4 text-[12px] ${
                 isDark
@@ -1970,9 +1912,7 @@ function TargetGroupsDrawer({
                   : "bg-[#f7f2ea] text-[#70675c]"
               }`}
             >
-              {!targetSourceAccountId
-                ? "Select account first."
-                : "Loading groups..."}
+              Scanning groups shared by all script accounts...
             </div>
           ) : filteredOptions.length ? (
             <div className="space-y-2">
