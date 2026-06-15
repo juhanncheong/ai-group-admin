@@ -68,6 +68,14 @@ function getRememberedValue(key, fallback = "") {
   }
 }
 
+function uaeDateTimeLocalToIso(value) {
+  if (!value) return "";
+
+  // datetime-local gives: YYYY-MM-DDTHH:mm
+  // UAE is always UTC+04:00
+  return new Date(`${value}:00+04:00`).toISOString();
+}
+
 export default function ScheduledMessages() {
   const { theme } = useTheme();
   const isDark = theme === "dark";
@@ -488,7 +496,7 @@ export default function ScheduledMessages() {
         imageUrl: uploadedImage.imageUrl,
         imageOriginalName: uploadedImage.imageOriginalName,
         imageMimeType: uploadedImage.imageMimeType,
-        sendAt: new Date(sendAt).toISOString(),
+        sendAt: uaeDateTimeLocalToIso(sendAt),
         requireApproval,
       };
 
@@ -1239,7 +1247,7 @@ function CreateScheduleModal({
             </div>
 
             <div>
-              <label className={labelClass(isDark)}>Send date/time</label>
+              <label className={labelClass(isDark)}>Send date/time (UAE)</label>
 
               <input
                 value={sendAt}
