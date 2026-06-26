@@ -1273,7 +1273,7 @@ export default function TelegramChats() {
           isMuted: profile.isMuted,
           mutedUntil: profile.mutedUntil,
           isBlocked: profile.isBlocked,
-          hasPhoto: profile.hasPhoto,
+          ...(profile.hasPhoto === true ? { hasPhoto: true } : {}),
         });
       }
     } catch (err) {
