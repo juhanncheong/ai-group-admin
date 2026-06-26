@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   CheckCircle2,
+  ChevronDown,
   CircleOff,
   Clock3,
   Globe2,
   Loader2,
+  MoreHorizontal,
   Network,
   Plus,
   RefreshCw,
@@ -12,6 +15,7 @@ import {
   ShieldCheck,
   Trash2,
   Upload,
+  UserPlus,
   X,
 } from "lucide-react";
 import { toast } from "react-toastify";
@@ -24,6 +28,32 @@ const DEFAULT_IMPORT_META = {
   source: "webshare",
   type: "socks5",
 };
+
+const NETWORK_STATUS_OPTIONS = [
+  { value: "all", label: "All status" },
+  { value: "available", label: "Available" },
+  { value: "assigned", label: "Assigned" },
+  { value: "reserved", label: "Reserved" },
+  { value: "disabled", label: "Disabled" },
+  { value: "failed", label: "Failed" },
+  { value: "unknown", label: "Unknown" },
+];
+
+function getNetworkStatus(profile) {
+  return String(profile?.status || "unknown").toLowerCase();
+}
+
+function getNetworkStatusDotClass(status) {
+  const clean = String(status || "").toLowerCase();
+
+  if (clean === "available") return "bg-emerald-400";
+  if (clean === "assigned") return "bg-sky-400";
+  if (clean === "reserved") return "bg-amber-400";
+  if (clean === "disabled") return "bg-red-400";
+  if (clean === "failed") return "bg-red-400";
+
+  return "bg-slate-400";
+}
 
 function normalizeSearch(value) {
   return String(value || "")
@@ -70,6 +100,7 @@ export default function NetworkProfiles() {
   const [refreshing, setRefreshing] = useState(false);
   const [actionId, setActionId] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);
   const pageSize = 10;
 
@@ -78,20 +109,33 @@ export default function NetworkProfiles() {
   const [importMeta, setImportMeta] = useState(DEFAULT_IMPORT_META);
   const [importing, setImporting] = useState(false);
 
+  const [moreProfile, setMoreProfile] = useState(null);
+  const [assignProfile, setAssignProfile] = useState(null);
+  const [assignableAccounts, setAssignableAccounts] = useState([]);
+  const [assignLoading, setAssignLoading] = useState(false);
+  const [assigningAccountId, setAssigningAccountId] = useState("");
+
   useEffect(() => {
     loadData();
   }, []);
 
   useEffect(() => {
     setPage(1);
-  }, [searchQuery]);
+  }, [searchQuery, statusFilter]);
 
   const filteredProfiles = useMemo(() => {
     const keyword = normalizeSearch(searchQuery);
-
-    if (!keyword) return profiles;
+    const selectedStatus = normalizeSearch(statusFilter);
 
     return profiles.filter((profile) => {
+      const profileStatus = normalizeSearch(getNetworkStatus(profile));
+
+      if (selectedStatus !== "all" && profileStatus !== selectedStatus) {
+        return false;
+      }
+
+      if (!keyword) return true;
+
       const text = [
         profile.name,
         profile.type,
@@ -103,15 +147,19 @@ export default function NetworkProfiles() {
         profile.status,
         profile.detectedIp,
         profile.lastError,
+        profile.country,
+        profile.city,
+        profile.region,
         profile.assignedTelegramAccount?.phoneNumber,
         profile.assignedTelegramAccount?.label,
+        profile.assignedTelegramAccount?.telegramUsername,
       ]
         .map(normalizeSearch)
         .join("");
 
       return text.includes(keyword);
     });
-  }, [profiles, searchQuery]);
+  }, [profiles, searchQuery, statusFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredProfiles.length / pageSize));
 
@@ -272,6 +320,7 @@ export default function NetworkProfiles() {
       });
 
       toast.success(res.data?.message || "Network profile disabled");
+      setMoreProfile(null);
       await loadData({ silent: true });
     } catch (err) {
       console.error("Disable network profile error:", err);
@@ -290,7 +339,7 @@ export default function NetworkProfiles() {
     if (blockIfNotSuperAdmin()) return;
 
     const yes = window.confirm(
-      "Release this network profile back to available pool?",
+      "Release this network profile back to available pool? This will remove it from the Telegram account.",
     );
 
     if (!yes) return;
@@ -301,6 +350,7 @@ export default function NetworkProfiles() {
       const res = await api.post(`/api/network-profiles/${profileId}/release`);
 
       toast.success(res.data?.message || "Network profile released");
+      setMoreProfile(null);
       await loadData({ silent: true });
     } catch (err) {
       console.error("Release network profile error:", err);
@@ -326,6 +376,7 @@ export default function NetworkProfiles() {
       });
 
       toast.success(res.data?.message || "Network profile marked available");
+      setMoreProfile(null);
       await loadData({ silent: true });
     } catch (err) {
       console.error("Mark available network profile error:", err);
@@ -355,6 +406,7 @@ export default function NetworkProfiles() {
       const res = await api.delete(`/api/network-profiles/${profileId}`);
 
       toast.success(res.data?.message || "Network profile deleted");
+      setMoreProfile(null);
       await loadData({ silent: true });
     } catch (err) {
       console.error("Delete network profile error:", err);
@@ -365,6 +417,75 @@ export default function NetworkProfiles() {
       );
     } finally {
       setActionId("");
+    }
+  }
+
+  async function loadAssignableTelegramAccounts() {
+    setAssignLoading(true);
+
+    try {
+      const res = await api.get(
+        "/api/network-profiles/telegram-accounts/without-ip",
+      );
+
+      setAssignableAccounts(Array.isArray(res.data?.data) ? res.data.data : []);
+    } catch (err) {
+      console.error("Load assignable Telegram accounts error:", err);
+      toast.error(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Failed to load Telegram accounts without IP",
+      );
+    } finally {
+      setAssignLoading(false);
+    }
+  }
+
+  function openAssignDrawer(profile) {
+    if (blockIfNotSuperAdmin()) return;
+
+    const isAvailable = getNetworkStatus(profile) === "available";
+    const isAssigned = Boolean(profile?.assignedTelegramAccount);
+
+    if (!isAvailable || isAssigned) {
+      toast.error("Only available and unassigned IPs can be assigned.");
+      return;
+    }
+
+    setMoreProfile(null);
+    setAssignProfile(profile);
+    loadAssignableTelegramAccounts();
+  }
+
+  async function handleAssignTelegramAccount(accountId) {
+    if (!assignProfile?._id || !accountId) return;
+    if (blockIfNotSuperAdmin()) return;
+
+    setAssigningAccountId(accountId);
+
+    try {
+      const res = await api.post(
+        `/api/network-profiles/${assignProfile._id}/assign-telegram-account`,
+        {
+          telegramAccountId: accountId,
+        },
+      );
+
+      toast.success(res.data?.message || "IP assigned to Telegram account");
+
+      setAssignProfile(null);
+      setAssignableAccounts([]);
+
+      await loadData({ silent: true });
+    } catch (err) {
+      console.error("Assign Telegram account error:", err);
+      toast.error(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Failed to assign IP to Telegram account",
+      );
+    } finally {
+      setAssigningAccountId("");
     }
   }
 
@@ -381,6 +502,8 @@ export default function NetworkProfiles() {
             refreshing={refreshing}
             searchQuery={searchQuery}
             setSearchQuery={setSearchQuery}
+            statusFilter={statusFilter}
+            setStatusFilter={setStatusFilter}
             resultCount={filteredProfiles.length}
             totalCount={profiles.length}
             onRefresh={() => loadData({ silent: true })}
@@ -433,14 +556,14 @@ export default function NetworkProfiles() {
           <InfoStrip isDark={isDark} isSuperAdmin={isSuperAdmin} />
 
           <div
-            className={`overflow-hidden rounded-[24px] border ${
+            className={`overflow-hidden rounded-[28px] border shadow-[0_24px_80px_rgba(17,15,10,0.08)] ${
               isDark
                 ? "border-white/[0.06] bg-[#282a30]"
                 : "border-[#eee4d5] bg-white"
             }`}
           >
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1200px] border-collapse">
+              <table className="w-full min-w-[980px] border-collapse">
                 <thead>
                   <tr
                     className={
@@ -451,12 +574,12 @@ export default function NetworkProfiles() {
                   >
                     <Th>No.</Th>
                     <Th>Profile</Th>
-                    <Th>Detected IP</Th>
+                    <Th>IP / Endpoint</Th>
                     <Th>Status</Th>
                     <Th>Assigned</Th>
                     <Th>Tested</Th>
                     <Th>Health</Th>
-                    <Th align="right">Actions</Th>
+                    <Th align="right">More</Th>
                   </tr>
                 </thead>
 
@@ -482,13 +605,22 @@ export default function NetworkProfiles() {
                         profile={profile}
                         isDark={isDark}
                         busy={actionId === profile._id}
-                        onTest={() => handleTest(profile._id)}
-                        onDisable={() => handleDisable(profile._id)}
-                        onRelease={() => handleRelease(profile._id)}
-                        onMarkAvailable={() => handleMarkAvailable(profile._id)}
-                        onDelete={() => handleDelete(profile._id)}
+                        onMore={() => setMoreProfile(profile)}
                       />
                     ))
+                  ) : profiles.length &&
+                    (searchQuery.trim() || statusFilter !== "all") ? (
+                    <tr>
+                      <td colSpan={8} className="px-5 py-12 text-center">
+                        <FilterEmptyState
+                          isDark={isDark}
+                          onClear={() => {
+                            setSearchQuery("");
+                            setStatusFilter("all");
+                          }}
+                        />
+                      </td>
+                    </tr>
                   ) : (
                     <tr>
                       <td colSpan={8} className="px-5 py-12 text-center">
@@ -534,6 +666,41 @@ export default function NetworkProfiles() {
             onSubmit={handleImport}
           />
         )}
+
+        {moreProfile && (
+          <ProfileActionModal
+            isDark={isDark}
+            profile={moreProfile}
+            busy={actionId === moreProfile._id}
+            onClose={() => {
+              if (!actionId) setMoreProfile(null);
+            }}
+            onTest={() => handleTest(moreProfile._id)}
+            onAssign={() => openAssignDrawer(moreProfile)}
+            onDisable={() => handleDisable(moreProfile._id)}
+            onRelease={() => handleRelease(moreProfile._id)}
+            onMarkAvailable={() => handleMarkAvailable(moreProfile._id)}
+            onDelete={() => handleDelete(moreProfile._id)}
+          />
+        )}
+
+        {assignProfile && (
+          <AssignTelegramDrawer
+            isDark={isDark}
+            profile={assignProfile}
+            accounts={assignableAccounts}
+            loading={assignLoading}
+            assigningAccountId={assigningAccountId}
+            onRefresh={loadAssignableTelegramAccounts}
+            onClose={() => {
+              if (!assigningAccountId) {
+                setAssignProfile(null);
+                setAssignableAccounts([]);
+              }
+            }}
+            onAssign={handleAssignTelegramAccount}
+          />
+        )}
       </div>
     </Shell>
   );
@@ -544,6 +711,8 @@ function TopHeader({
   refreshing,
   searchQuery,
   setSearchQuery,
+  statusFilter,
+  setStatusFilter,
   resultCount,
   totalCount,
   onRefresh,
@@ -553,7 +722,7 @@ function TopHeader({
     <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
       <div className="flex min-w-0 items-center gap-3">
         <div
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl shadow-[0_16px_35px_rgba(0,0,0,0.10)] ${
             isDark ? "bg-white/[0.06] text-white/65" : "bg-white text-[#6d6254]"
           }`}
         >
@@ -580,6 +749,12 @@ function TopHeader({
       </div>
 
       <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center xl:w-auto">
+        <StatusFilterDropdown
+          isDark={isDark}
+          value={statusFilter}
+          onChange={setStatusFilter}
+        />
+
         <SearchBar
           isDark={isDark}
           value={searchQuery}
@@ -620,7 +795,7 @@ function TopHeader({
 function InfoStrip({ isDark, isSuperAdmin }) {
   return (
     <div
-      className={`rounded-[22px] border px-4 py-3 ${
+      className={`rounded-[24px] border px-4 py-3 ${
         isDark
           ? "border-white/[0.06] bg-[#282a30] text-white"
           : "border-[#eee4d5] bg-white text-[#201d19]"
@@ -628,7 +803,7 @@ function InfoStrip({ isDark, isSuperAdmin }) {
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[16px] bg-[#d8c49a] text-[#171719]">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[16px] bg-[#d8c49a] text-[#171719] shadow-[0_14px_35px_rgba(216,196,154,0.20)]">
             <ShieldCheck className="h-4 w-4" />
           </div>
 
@@ -642,9 +817,8 @@ function InfoStrip({ isDark, isSuperAdmin }) {
                 isDark ? "text-white/42" : "text-[#746b61]"
               }`}
             >
-              Admin can view proxy health, detected IP, assignment, and test
-              history. Only super admin can import, test, disable, release, or
-              delete proxies.
+              Actions are now inside one compact More menu. Available IPs can be
+              assigned to connected Telegram accounts that currently have no IP.
             </div>
           </div>
         </div>
@@ -663,18 +837,9 @@ function InfoStrip({ isDark, isSuperAdmin }) {
   );
 }
 
-function ProfileRow({
-  rowNumber,
-  profile,
-  isDark,
-  busy,
-  onTest,
-  onDisable,
-  onRelease,
-  onMarkAvailable,
-  onDelete,
-}) {
+function ProfileRow({ rowNumber, profile, isDark, busy, onMore }) {
   const assigned = profile.assignedTelegramAccount;
+  const endpoint = [profile.host, profile.port].filter(Boolean).join(":");
 
   return (
     <tr
@@ -697,10 +862,12 @@ function ProfileRow({
       </td>
 
       <td className="px-5 py-3">
-        <div className="text-sm">{profile.name || "Network Profile"}</div>
+        <div className="max-w-[230px] truncate text-sm font-medium">
+          {profile.name || "Network Profile"}
+        </div>
 
         <div className={`mt-0.5 text-xs ${mutedTextClass(isDark)}`}>
-          proxy · {profile.type || "socks5"}
+          proxy · {String(profile.type || "socks5").toUpperCase()}
         </div>
       </td>
 
@@ -710,8 +877,11 @@ function ProfileRow({
           <span className="font-mono text-xs">{profile.detectedIp || "-"}</span>
         </div>
 
-        <div className={`mt-0.5 text-xs ${mutedTextClass(isDark)}`}>
-          {profile.latencyMs ? `${profile.latencyMs}ms latency` : "Not tested"}
+        <div
+          className={`mt-0.5 max-w-[210px] truncate text-xs ${mutedTextClass(isDark)}`}
+        >
+          {endpoint || "No endpoint"}{" "}
+          {profile.latencyMs ? `· ${profile.latencyMs}ms` : ""}
         </div>
       </td>
 
@@ -722,8 +892,10 @@ function ProfileRow({
       <td className="px-5 py-3">
         {assigned ? (
           <div>
-            <div className="text-sm font-medium">
-              {assigned.label || "Telegram Account"}
+            <div className="max-w-[180px] truncate text-sm font-medium">
+              {assigned.label ||
+                assigned.telegramUsername ||
+                "Telegram Account"}
             </div>
             <div className={`mt-0.5 text-xs ${mutedTextClass(isDark)}`}>
               {assigned.phoneNumber || "-"}
@@ -745,64 +917,552 @@ function ProfileRow({
       </td>
 
       <td className="px-5 py-3">
-        <div className="flex justify-end gap-2">
+        <div className="flex justify-end">
           <button
             type="button"
-            onClick={onTest}
+            onClick={onMore}
             disabled={busy}
-            className={tinyButtonClass(isDark)}
-          >
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Test"}
-          </button>
-
-          {profile.status !== "available" && (
-            <button
-              type="button"
-              onClick={onMarkAvailable}
-              disabled={busy}
-              className={tinyButtonClass(isDark)}
-            >
-              Available
-            </button>
-          )}
-
-          {profile.status !== "available" && (
-            <button
-              type="button"
-              onClick={onRelease}
-              disabled={busy}
-              className={tinyButtonClass(isDark)}
-            >
-              Release
-            </button>
-          )}
-
-          {profile.status !== "disabled" && (
-            <button
-              type="button"
-              onClick={onDisable}
-              disabled={busy}
-              className={tinyButtonClass(isDark)}
-            >
-              Disable
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={onDelete}
-            disabled={busy}
-            className={`inline-flex h-8 items-center justify-center rounded-xl px-3 text-xs font-medium transition disabled:opacity-60 ${
+            className={`inline-flex h-9 w-9 items-center justify-center rounded-2xl transition disabled:cursor-not-allowed disabled:opacity-60 ${
               isDark
-                ? "bg-red-400/[0.07] text-red-300 hover:bg-red-400/12"
-                : "bg-red-50 text-red-600 hover:bg-red-100"
+                ? "bg-white/[0.07] text-white/62 hover:bg-white/[0.12] hover:text-white"
+                : "bg-[#f4efe6] text-[#5c5348] hover:bg-[#e9ddca] hover:text-[#201d19]"
             }`}
+            title="More actions"
           >
-            <Trash2 className="h-3.5 w-3.5" />
+            {busy ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <MoreHorizontal className="h-4 w-4" />
+            )}
           </button>
         </div>
       </td>
     </tr>
+  );
+}
+
+function ProfileActionModal({
+  isDark,
+  profile,
+  busy,
+  onClose,
+  onTest,
+  onAssign,
+  onDisable,
+  onRelease,
+  onMarkAvailable,
+  onDelete,
+}) {
+  const status = getNetworkStatus(profile);
+  const assigned = profile.assignedTelegramAccount;
+  const canAssign = status === "available" && !assigned;
+  const canMarkAvailable = status !== "available";
+  const canRelease = status !== "available";
+  const canDisable = status !== "disabled";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute inset-0 z-0 bg-black/55 backdrop-blur-sm"
+        aria-label="Close modal backdrop"
+      />
+
+      <div
+        className={`relative z-10 w-full max-w-[560px] overflow-hidden rounded-[32px] shadow-2xl ${
+          isDark ? "bg-[#202127] text-white" : "bg-white text-[#171717]"
+        }`}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={busy}
+          className={`absolute right-4 top-4 z-10 flex h-9 w-9 items-center justify-center rounded-2xl transition ${
+            isDark
+              ? "bg-white/[0.08] text-white/60 hover:bg-white/[0.12]"
+              : "bg-[#f1f5f9] text-[#475569] hover:bg-[#e2e8f0]"
+          } disabled:opacity-50`}
+        >
+          <X className="h-4 w-4" />
+        </button>
+
+        <div className="relative overflow-hidden bg-[#d8c49a] px-6 pb-7 pt-8 text-[#171717]">
+          <div className="absolute -right-12 -top-12 h-36 w-36 rounded-full bg-white/20 blur-2xl" />
+          <div className="absolute -bottom-16 left-8 h-32 w-32 rounded-full bg-black/10 blur-2xl" />
+
+          <div className="relative">
+            <div className="flex h-14 w-14 items-center justify-center rounded-[22px] bg-black/10">
+              <MoreHorizontal className="h-7 w-7" />
+            </div>
+
+            <div className="mt-4 text-xl font-semibold tracking-[-0.04em]">
+              Network Actions
+            </div>
+
+            <div className="mt-1 max-w-[440px] text-sm text-black/60">
+              Manage this IP without widening your table.
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4 px-6 py-6">
+          <div
+            className={`rounded-[22px] border p-4 ${
+              isDark
+                ? "border-white/[0.07] bg-white/[0.045]"
+                : "border-[#eee4d5] bg-[#fbf8f2]"
+            }`}
+          >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold">
+                  {profile.name || "Network Profile"}
+                </div>
+                <div
+                  className={`mt-1 font-mono text-xs ${mutedTextClass(isDark)}`}
+                >
+                  {[profile.host, profile.port].filter(Boolean).join(":") ||
+                    "-"}
+                </div>
+              </div>
+
+              <StatusPill status={profile.status} isDark={isDark} />
+            </div>
+
+            <div className={`mt-3 text-xs leading-5 ${mutedTextClass(isDark)}`}>
+              Assigned:{" "}
+              <span className={isDark ? "text-white/75" : "text-[#201d19]"}>
+                {assigned
+                  ? assigned.label || assigned.phoneNumber || "Telegram Account"
+                  : "Not assigned"}
+              </span>
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ActionTile
+              isDark={isDark}
+              title="Test Proxy"
+              description="Check detected IP and latency."
+              disabled={busy}
+              loading={busy}
+              onClick={onTest}
+            />
+
+            <ActionTile
+              isDark={isDark}
+              title="Assign Telegram"
+              description={
+                canAssign
+                  ? "Attach this available IP to a connected Telegram account."
+                  : "Only available and unassigned IPs can be assigned."
+              }
+              icon={<UserPlus className="h-4 w-4" />}
+              disabled={busy || !canAssign}
+              highlight={canAssign}
+              onClick={onAssign}
+            />
+
+            <ActionTile
+              isDark={isDark}
+              title="Mark Available"
+              description="Move this IP back to available status."
+              disabled={busy || !canMarkAvailable}
+              onClick={onMarkAvailable}
+            />
+
+            <ActionTile
+              isDark={isDark}
+              title="Release"
+              description="Detach from Telegram and return to available pool."
+              disabled={busy || !canRelease}
+              warning
+              onClick={onRelease}
+            />
+
+            <ActionTile
+              isDark={isDark}
+              title="Disable"
+              description="Stop this IP from being used."
+              disabled={busy || !canDisable}
+              warning
+              onClick={onDisable}
+            />
+
+            <ActionTile
+              isDark={isDark}
+              title="Delete"
+              description="Remove this IP. Only works when unassigned."
+              icon={<Trash2 className="h-4 w-4" />}
+              disabled={busy}
+              danger
+              onClick={onDelete}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ActionTile({
+  isDark,
+  title,
+  description,
+  icon,
+  disabled,
+  loading,
+  highlight,
+  warning,
+  danger,
+  onClick,
+}) {
+  let iconClass = isDark
+    ? "bg-white/[0.08] text-white/65"
+    : "bg-[#f4efe6] text-[#5c5348]";
+
+  if (highlight) {
+    iconClass = "bg-emerald-400/15 text-emerald-500";
+  }
+
+  if (warning) {
+    iconClass = "bg-amber-400/15 text-amber-500";
+  }
+
+  if (danger) {
+    iconClass = "bg-red-400/15 text-red-500";
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`group rounded-[22px] border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-45 ${
+        isDark
+          ? "border-white/[0.07] bg-white/[0.045] hover:bg-white/[0.075]"
+          : "border-[#eee4d5] bg-white hover:bg-[#fbf8f2]"
+      }`}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl transition ${iconClass}`}
+        >
+          {loading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            icon || <RefreshCw className="h-4 w-4" />
+          )}
+        </div>
+
+        <div className="min-w-0">
+          <div
+            className={`text-sm font-semibold ${
+              isDark ? "text-white" : "text-[#201d19]"
+            }`}
+          >
+            {title}
+          </div>
+
+          <div
+            className={`mt-1 text-xs leading-5 ${
+              isDark ? "text-white/42" : "text-[#746b61]"
+            }`}
+          >
+            {description}
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function AssignTelegramDrawer({
+  isDark,
+  profile,
+  accounts,
+  loading,
+  assigningAccountId,
+  onRefresh,
+  onClose,
+  onAssign,
+}) {
+  const [query, setQuery] = useState("");
+
+  const filteredAccounts = useMemo(() => {
+    const keyword = normalizeSearch(query);
+
+    if (!keyword) return accounts;
+
+    return accounts.filter((account) => {
+      const text = [
+        account.phoneNumber,
+        account.label,
+        account.telegramUsername,
+        account.telegramFirstName,
+        account.telegramLastName,
+        account.status,
+      ]
+        .map(normalizeSearch)
+        .join("");
+
+      return text.includes(keyword);
+    });
+  }, [accounts, query]);
+
+  return (
+    <div className="fixed inset-0 z-[60]">
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/45 backdrop-blur-sm"
+        aria-label="Close drawer backdrop"
+      />
+
+      <aside
+        className={`absolute right-0 top-0 flex h-full w-full max-w-[520px] flex-col shadow-2xl ${
+          isDark ? "bg-[#202127] text-white" : "bg-[#fbf8f2] text-[#171717]"
+        }`}
+      >
+        <div
+          className={`border-b px-5 py-5 ${
+            isDark ? "border-white/[0.07]" : "border-[#eee4d5]"
+          }`}
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div
+                className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${
+                  isDark ? "text-white/38" : "text-[#8a8176]"
+                }`}
+              >
+                Assign IP
+              </div>
+
+              <div className="mt-1 text-xl font-semibold tracking-[-0.04em]">
+                Select Telegram Account
+              </div>
+
+              <div
+                className={`mt-2 text-xs leading-5 ${mutedTextClass(isDark)}`}
+              >
+                This does not reconnect Telegram. It only attaches this
+                available IP to a connected Telegram account with no IP.
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={Boolean(assigningAccountId)}
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl transition ${
+                isDark
+                  ? "bg-white/[0.08] text-white/60 hover:bg-white/[0.12]"
+                  : "bg-white text-[#475569] hover:bg-[#f1f5f9]"
+              } disabled:opacity-50`}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div
+            className={`mt-5 rounded-[24px] border p-4 ${
+              isDark
+                ? "border-white/[0.07] bg-white/[0.045]"
+                : "border-[#eee4d5] bg-white"
+            }`}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold">
+                  {profile.name || "Available IP"}
+                </div>
+                <div
+                  className={`mt-1 font-mono text-xs ${mutedTextClass(isDark)}`}
+                >
+                  {[profile.host, profile.port].filter(Boolean).join(":") ||
+                    "-"}
+                </div>
+              </div>
+
+              <StatusPill status={profile.status} isDark={isDark} />
+            </div>
+          </div>
+
+          <div className="mt-4 flex gap-2">
+            <div
+              className={`flex h-10 min-w-0 flex-1 items-center gap-2 rounded-[16px] border px-3 ${
+                isDark
+                  ? "border-white/[0.07] bg-white/[0.055]"
+                  : "border-[#eee4d5] bg-white"
+              }`}
+            >
+              <Search
+                className={`h-3.5 w-3.5 shrink-0 ${
+                  isDark ? "text-white/35" : "text-[#8a8176]"
+                }`}
+              />
+
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search phone, label, username..."
+                className={`h-full min-w-0 flex-1 bg-transparent text-[13px] outline-none ${
+                  isDark
+                    ? "text-white placeholder:text-white/30"
+                    : "text-[#201d19] placeholder:text-[#9b9287]"
+                }`}
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={loading || Boolean(assigningAccountId)}
+              className={softIconButtonClass(isDark)}
+              title="Refresh accounts"
+            >
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+          {loading ? (
+            <div
+              className={`py-14 text-center text-sm ${mutedTextClass(isDark)}`}
+            >
+              <Loader2 className="mx-auto mb-3 h-5 w-5 animate-spin" />
+              Loading Telegram accounts without IP...
+            </div>
+          ) : filteredAccounts.length ? (
+            <div className="space-y-3">
+              {filteredAccounts.map((account) => (
+                <TelegramAccountCard
+                  key={account._id}
+                  isDark={isDark}
+                  account={account}
+                  loading={assigningAccountId === account._id}
+                  disabled={Boolean(assigningAccountId)}
+                  onAssign={() => onAssign(account._id)}
+                />
+              ))}
+            </div>
+          ) : accounts.length && query.trim() ? (
+            <DrawerEmptyState
+              isDark={isDark}
+              title="No matching Telegram account"
+              description="Try another phone number, label, or username."
+            />
+          ) : (
+            <DrawerEmptyState
+              isDark={isDark}
+              title="No connected Telegram accounts without IP"
+              description="Release an expired IP from a connected Telegram account first, then it will appear here."
+            />
+          )}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function TelegramAccountCard({ isDark, account, loading, disabled, onAssign }) {
+  const displayName =
+    account.label ||
+    account.telegramUsername ||
+    [account.telegramFirstName, account.telegramLastName]
+      .filter(Boolean)
+      .join(" ") ||
+    "Telegram Account";
+
+  return (
+    <div
+      className={`rounded-[24px] border p-4 transition ${
+        isDark
+          ? "border-white/[0.07] bg-white/[0.045]"
+          : "border-[#eee4d5] bg-white"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold">{displayName}</div>
+
+          <div className={`mt-1 text-xs ${mutedTextClass(isDark)}`}>
+            {account.phoneNumber || "-"}
+          </div>
+
+          <div
+            className={`mt-2 flex flex-wrap gap-2 text-[11px] ${mutedTextClass(isDark)}`}
+          >
+            <span
+              className={`rounded-full px-2 py-1 ${
+                isDark ? "bg-white/[0.06]" : "bg-[#f7f2ea]"
+              }`}
+            >
+              {account.status || "connected"}
+            </span>
+
+            <span
+              className={`rounded-full px-2 py-1 ${
+                isDark ? "bg-white/[0.06]" : "bg-[#f7f2ea]"
+              }`}
+            >
+              No IP assigned
+            </span>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={onAssign}
+          disabled={disabled}
+          className={primaryButtonClass("min-w-[92px]")}
+        >
+          {loading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <UserPlus className="h-4 w-4" />
+          )}
+          Assign
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DrawerEmptyState({ isDark, title, description }) {
+  return (
+    <div className="py-14 text-center">
+      <div
+        className={`mx-auto flex h-12 w-12 items-center justify-center rounded-2xl ${
+          isDark ? "bg-white/[0.07] text-white/60" : "bg-white text-[#5c5348]"
+        }`}
+      >
+        <AlertTriangle className="h-5 w-5" />
+      </div>
+
+      <div
+        className={`mt-4 text-sm font-semibold ${
+          isDark ? "text-white" : "text-[#201d19]"
+        }`}
+      >
+        {title}
+      </div>
+
+      <div
+        className={`mx-auto mt-2 max-w-sm text-xs leading-5 ${
+          isDark ? "text-white/42" : "text-[#746b61]"
+        }`}
+      >
+        {description}
+      </div>
+    </div>
   );
 }
 
@@ -822,7 +1482,9 @@ function HealthBox({ profile, isDark }) {
         </span>
       </div>
 
-      <div className={`mt-0.5 text-xs ${mutedTextClass(isDark)}`}>
+      <div
+        className={`mt-0.5 max-w-[180px] truncate text-xs ${mutedTextClass(isDark)}`}
+      >
         {profile.lastError ||
           `${profile.successCount || 0} ok | ${profile.failureCount || 0} fail`}
       </div>
@@ -1014,6 +1676,131 @@ function EmptyState({ isDark, onImport }) {
         <Upload className="h-4 w-4" />
         Import Profiles
       </button>
+    </div>
+  );
+}
+
+function FilterEmptyState({ isDark, onClear }) {
+  return (
+    <div className="mx-auto max-w-sm">
+      <div
+        className={`mx-auto flex h-12 w-12 items-center justify-center rounded-2xl ${
+          isDark
+            ? "bg-white/[0.07] text-white/60"
+            : "bg-[#eee4d5] text-[#5c5348]"
+        }`}
+      >
+        <Search className="h-5 w-5" />
+      </div>
+
+      <div
+        className={`mt-4 text-sm font-semibold ${
+          isDark ? "text-white" : "text-[#201d19]"
+        }`}
+      >
+        No matching profiles found
+      </div>
+
+      <div
+        className={`mt-2 text-xs leading-5 ${
+          isDark ? "text-white/42" : "text-[#746b61]"
+        }`}
+      >
+        Try another proxy, IP, project, assigned account, or status.
+      </div>
+
+      <button
+        type="button"
+        onClick={onClear}
+        className={`${primaryButtonClass()} mx-auto mt-5`}
+      >
+        <X className="h-4 w-4" />
+        Clear Filters
+      </button>
+    </div>
+  );
+}
+
+function StatusFilterDropdown({ isDark, value, onChange }) {
+  const [open, setOpen] = useState(false);
+
+  const selectedOption =
+    NETWORK_STATUS_OPTIONS.find((option) => option.value === value) ||
+    NETWORK_STATUS_OPTIONS[0];
+
+  return (
+    <div className="relative w-full sm:w-[170px]">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        onBlur={() => {
+          setTimeout(() => setOpen(false), 120);
+        }}
+        className={`flex h-[38px] w-full items-center justify-between gap-2 rounded-[14px] border px-3 text-left text-xs font-medium transition ${
+          isDark
+            ? "border-white/[0.07] bg-white/[0.055] text-white/70 hover:bg-white/[0.08]"
+            : "border-[#eee4d5] bg-white text-[#5f554a] shadow-[0_10px_24px_rgba(30,25,18,0.035)] hover:bg-[#fbf8f2]"
+        }`}
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          <span
+            className={`h-2 w-2 shrink-0 rounded-full ${getNetworkStatusDotClass(
+              selectedOption.value,
+            )}`}
+          />
+
+          <span className="truncate">{selectedOption.label}</span>
+        </span>
+
+        <ChevronDown
+          className={`h-3.5 w-3.5 shrink-0 transition ${
+            open ? "rotate-180" : ""
+          } ${isDark ? "text-white/35" : "text-[#8a8176]"}`}
+        />
+      </button>
+
+      {open && (
+        <div
+          className={`absolute left-0 top-[44px] z-50 w-full overflow-hidden rounded-[16px] border p-1 shadow-2xl ${
+            isDark
+              ? "border-white/[0.08] bg-[#24252b] text-white shadow-black/30"
+              : "border-[#eee4d5] bg-white text-[#201d19] shadow-[0_18px_45px_rgba(30,25,18,0.14)]"
+          }`}
+        >
+          {NETWORK_STATUS_OPTIONS.map((option) => {
+            const active = option.value === value;
+
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  onChange(option.value);
+                  setOpen(false);
+                }}
+                className={`flex w-full items-center gap-2 rounded-[12px] px-3 py-2 text-left text-xs transition ${
+                  active
+                    ? isDark
+                      ? "bg-[#d8c49a]/12 text-[#d8c49a]"
+                      : "bg-[#f7ead0] text-[#8a6728]"
+                    : isDark
+                      ? "text-white/58 hover:bg-white/[0.06] hover:text-white"
+                      : "text-[#5f554a] hover:bg-[#f7f2ea] hover:text-[#201d19]"
+                }`}
+              >
+                <span
+                  className={`h-2 w-2 shrink-0 rounded-full ${getNetworkStatusDotClass(
+                    option.value,
+                  )}`}
+                />
+
+                <span className="truncate">{option.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -1340,10 +2127,10 @@ function softButtonClass(isDark) {
   }`;
 }
 
-function tinyButtonClass(isDark) {
-  return `inline-flex h-8 items-center justify-center gap-2 rounded-xl px-3 text-xs font-medium transition disabled:opacity-60 ${
+function softIconButtonClass(isDark) {
+  return `inline-flex h-10 w-10 items-center justify-center rounded-[16px] text-[12px] font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
     isDark
-      ? "bg-white/[0.07] text-white/60 hover:bg-white/[0.10]"
-      : "bg-[#eee4d5] text-[#5c5348] hover:bg-[#e6dac8]"
+      ? "bg-white/[0.06] text-white/58 hover:bg-white/[0.10]"
+      : "bg-white text-[#5c5348] hover:bg-[#f7f2ea]"
   }`;
 }
