@@ -2987,7 +2987,7 @@ export default function TelegramChats() {
             </aside>
 
             <main
-              className={`flex min-h-0 flex-col ${
+              className={`relative flex min-h-0 flex-col overflow-hidden ${
                 isDark ? "bg-[#202127]" : "bg-[#f4efe6]"
               }`}
             >
@@ -3269,6 +3269,7 @@ export default function TelegramChats() {
                       photos={chatPhotos}
                       links={chatLinks}
                       groupMembers={groupMembers}
+                      memberPhotoMap={memberPhotoMap}
                       inviteLink={inviteLink}
                       loadingProfile={loadingProfile}
                       loadingPhotos={loadingPhotos}
@@ -5052,7 +5053,8 @@ function MessageActions({ isDark, busy, editing, onEdit, onDelete }) {
 function ManageMembersPanel({
   isDark,
   chat,
-  members,
+  members = [],
+  memberPhotoMap = {},
   inviteLink,
   loadingMembers,
   groupAction,
@@ -5353,8 +5355,8 @@ function GroupSettingsPanel({
               chat?.historyHiddenForNewMembers
             )
           }
-          busy={groupAction === "history"}
-          onChange={onToggleGroupHistory}
+          loading={groupAction === "history"}
+          onSave={onToggleGroupHistory}
         />
       </div>
 
@@ -5388,6 +5390,7 @@ function ChatProfileDrawer({
   photos,
   links,
   groupMembers = [],
+  memberPhotoMap = {},
   inviteLink = "",
   loadingProfile,
   loadingPhotos,
@@ -5433,7 +5436,7 @@ function ChatProfileDrawer({
   }, [chat?._id, chat?.title]);
 
   return (
-    <div className="fixed inset-0 z-[100] flex justify-end bg-black/35">
+    <div className="absolute inset-0 z-[100] flex justify-end bg-black/20">
       <div
         className={`flex h-full w-full max-w-[390px] flex-col overflow-hidden shadow-2xl ${
           isDark ? "bg-[#202127] text-white" : "bg-white text-[#201d19]"
@@ -5691,6 +5694,7 @@ function ChatProfileDrawer({
                 isDark={isDark}
                 chat={chat}
                 members={groupMembers}
+                memberPhotoMap={memberPhotoMap}
                 inviteLink={inviteLink}
                 loadingMembers={loadingGroupMembers}
                 groupAction={groupAction}
