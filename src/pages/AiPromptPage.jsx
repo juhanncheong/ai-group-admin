@@ -846,7 +846,7 @@ export default function AiPromptPage() {
   }
 
   function toggleAllVisibleGroups() {
-    if (pageLocked || isGroupChatMode) return;
+    if (pageLocked) return;
 
     if (allVisibleGroupsSelected) {
       setSelectedGroupKeys((prev) =>
@@ -2005,17 +2005,16 @@ function TargetDrawerContent({
               <div className={sectionHeaderClass(isDark)}>
                 <span>{isGroupChatMode ? "Shared Groups" : "Groups"}</span>
 
-                {!isGroupChatMode && (
-                  <button
-                    type="button"
-                    onClick={onToggleAllVisibleGroups}
-                    className={smallActionClass(isDark)}
-                  >
-                    {allVisibleGroupsSelected
-                      ? "Uncheck visible"
-                      : "Select all groups"}
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={onToggleAllVisibleGroups}
+                  disabled={!filteredGroups.length}
+                  className={smallActionClass(isDark)}
+                >
+                  {allVisibleGroupsSelected
+                    ? "Uncheck visible"
+                    : "Select all groups"}
+                </button>
               </div>
 
               {filteredGroups.length === 0 ? (
