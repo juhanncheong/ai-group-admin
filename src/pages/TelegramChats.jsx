@@ -324,6 +324,7 @@ export default function TelegramChats() {
   const messagesContainerRef = useRef(null);
   const shouldScrollToBottomRef = useRef(false);
   const syncAllJobRef = useRef(null);
+  const syncAllStatusLoadingRef = useRef(false);
   const [mediaPanel, setMediaPanel] = useState("");
 
   const [profileOpen, setProfileOpen] = useState(false);
@@ -528,7 +529,7 @@ export default function TelegramChats() {
         silent: true,
         stoppedRef: () => stopped,
       });
-    }, 5000);
+    }, 15000);
 
     const clockTimer = window.setInterval(() => {
       setSyncAllNow(Date.now());
@@ -1041,10 +1042,18 @@ export default function TelegramChats() {
     const silent = options.silent ?? false;
     const stoppedRef = options.stoppedRef || (() => false);
 
+    if (syncAllStatusLoadingRef.current) {
+      return;
+    }
+
+    syncAllStatusLoadingRef.current = true;
+
     try {
       if (!silent) setSyncAllActionLoading(true);
 
-      const res = await api.get("/api/telegram-chats/sync-all/status");
+      const res = await api.get("/api/telegram-chats/sync-all/status", {
+        timeout: 12000,
+      });
 
       if (stoppedRef()) return;
 
@@ -1092,6 +1101,7 @@ export default function TelegramChats() {
         );
       }
     } finally {
+      syncAllStatusLoadingRef.current = false;
       if (!silent) setSyncAllActionLoading(false);
     }
   }
