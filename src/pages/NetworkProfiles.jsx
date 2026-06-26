@@ -104,6 +104,12 @@ export default function NetworkProfiles() {
   const [page, setPage] = useState(1);
   const pageSize = 10;
 
+  const [testAllLoading, setTestAllLoading] = useState(false);
+  const [testAllProgress, setTestAllProgress] = useState({
+    done: 0,
+    total: 0,
+  });
+
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const [importMeta, setImportMeta] = useState(DEFAULT_IMPORT_META);
@@ -266,6 +272,68 @@ export default function NetworkProfiles() {
       );
     } finally {
       setImporting(false);
+    }
+  }
+
+  async function handleTestAll() {
+    if (blockIfNotSuperAdmin()) return;
+
+    const targets = profiles.filter((profile) => profile?._id);
+
+    if (!targets.length) {
+      toast.error("No network profiles to test");
+      return;
+    }
+
+    const yes = window.confirm(
+      `Test all ${targets.length} network profiles? This may take a while.`,
+    );
+
+    if (!yes) return;
+
+    setTestAllLoading(true);
+    setTestAllProgress({
+      done: 0,
+      total: targets.length,
+    });
+
+    let working = 0;
+    let failed = 0;
+
+    try {
+      for (const profile of targets) {
+        try {
+          const res = await api.post(
+            `/api/network-profiles/${profile._id}/test`,
+          );
+
+          if (res.data?.success) {
+            working += 1;
+          } else {
+            failed += 1;
+          }
+        } catch (err) {
+          failed += 1;
+          console.error("Test profile failed:", profile._id, err);
+        } finally {
+          setTestAllProgress((prev) => ({
+            ...prev,
+            done: prev.done + 1,
+          }));
+        }
+      }
+
+      toast.success(`Test complete · ${working} working · ${failed} failed`);
+      await loadData({ silent: true });
+    } catch (err) {
+      console.error("Test all network profiles error:", err);
+      toast.error("Failed to test all network profiles");
+    } finally {
+      setTestAllLoading(false);
+      setTestAllProgress({
+        done: 0,
+        total: 0,
+      });
     }
   }
 
@@ -500,6 +568,8 @@ export default function NetworkProfiles() {
           <TopHeader
             isDark={isDark}
             refreshing={refreshing}
+            testAllLoading={testAllLoading}
+            testAllProgress={testAllProgress}
             searchQuery={searchQuery}
             setSearchQuery={setSearchQuery}
             statusFilter={statusFilter}
@@ -507,6 +577,7 @@ export default function NetworkProfiles() {
             resultCount={filteredProfiles.length}
             totalCount={profiles.length}
             onRefresh={() => loadData({ silent: true })}
+            onTestAll={handleTestAll}
             onImport={() => {
               if (blockIfNotSuperAdmin()) return;
               setImportOpen(true);
@@ -709,6 +780,8 @@ export default function NetworkProfiles() {
 function TopHeader({
   isDark,
   refreshing,
+  testAllLoading,
+  testAllProgress,
   searchQuery,
   setSearchQuery,
   statusFilter,
@@ -716,6 +789,7 @@ function TopHeader({
   resultCount,
   totalCount,
   onRefresh,
+  onTestAll,
   onImport,
 }) {
   return (
@@ -776,6 +850,23 @@ function TopHeader({
               <RefreshCw className="h-3.5 w-3.5" />
             )}
             Refresh
+          </button>
+
+          <button
+            type="button"
+            onClick={onTestAll}
+            disabled={testAllLoading}
+            className={softButtonClass(isDark)}
+          >
+            {testAllLoading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <CheckCircle2 className="h-3.5 w-3.5" />
+            )}
+
+            {testAllLoading
+              ? `Testing ${testAllProgress.done}/${testAllProgress.total}`
+              : "Test All"}
           </button>
 
           <button

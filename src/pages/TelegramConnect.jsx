@@ -73,6 +73,8 @@ export default function TelegramConnect() {
 
   const [checking, setChecking] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [testingAll, setTestingAll] = useState(false);
+  const [testAllModalOpen, setTestAllModalOpen] = useState(false);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [step, setStep] = useState("phone"); // phone | code | password | success
@@ -370,6 +372,42 @@ export default function TelegramConnect() {
     }
   }
 
+  async function handleTestAllAccounts() {
+    if (testingAll) return;
+
+    setTestAllModalOpen(false);
+    setTestingAll(true);
+
+    try {
+      const res = await api.post("/api/telegram-auth/accounts/test-all", {
+        concurrency: 3,
+      });
+
+      const summary = res.data?.summary || {};
+      const working = summary.working ?? 0;
+      const failed = summary.failed ?? 0;
+      const total = summary.total ?? 0;
+
+      toast.success(
+        `Test completed: ${working}/${total} working, ${failed} failed`,
+      );
+
+      await loadAccounts({ silent: true });
+    } catch (err) {
+      console.error("Test all Telegram accounts error:", err);
+
+      toast.error(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Failed to test all Telegram accounts",
+      );
+
+      await loadAccounts({ silent: true });
+    } finally {
+      setTestingAll(false);
+    }
+  }
+
   async function handleUpdateAccountLabel(accountId, newLabel) {
     if (!accountId) return;
 
@@ -476,7 +514,7 @@ export default function TelegramConnect() {
                 <button
                   type="button"
                   onClick={() => loadAccounts({ silent: true })}
-                  disabled={refreshing}
+                  disabled={refreshing || testingAll}
                   className={luxurySoftButtonClass(isDark)}
                 >
                   {refreshing ? (
@@ -485,6 +523,20 @@ export default function TelegramConnect() {
                     <RefreshCw className="h-3.5 w-3.5" />
                   )}
                   Refresh
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setTestAllModalOpen(true)}
+                  disabled={testingAll || refreshing || accounts.length === 0}
+                  className={luxurySoftButtonClass(isDark)}
+                >
+                  {testingAll ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                  )}
+                  {testingAll ? "Testing..." : "Test All"}
                 </button>
 
                 <button
@@ -703,6 +755,16 @@ export default function TelegramConnect() {
             onBackToPhone={() => setStep("phone")}
             onBackToCode={() => setStep("code")}
             onDone={closeModal}
+          />
+        )}
+
+        {testAllModalOpen && (
+          <TestAllConfirmModal
+            isDark={isDark}
+            accountCount={accounts.length}
+            testingAll={testingAll}
+            onClose={() => setTestAllModalOpen(false)}
+            onConfirm={handleTestAllAccounts}
           />
         )}
 
@@ -2052,6 +2114,108 @@ function DeviceInfoBubble({ account, isDark, position }) {
         }`}
       >
         This is the stable Telegram client identity saved for this account.
+      </div>
+    </div>
+  );
+}
+
+function TestAllConfirmModal({
+  isDark,
+  accountCount,
+  testingAll,
+  onClose,
+  onConfirm,
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
+      <button
+        type="button"
+        onClick={onClose}
+        disabled={testingAll}
+        className="absolute inset-0 z-0 bg-black/55 backdrop-blur-sm"
+        aria-label="Close modal backdrop"
+      />
+
+      <div
+        className={`relative z-10 w-full max-w-[460px] overflow-hidden rounded-[30px] shadow-2xl ${
+          isDark ? "bg-[#202127] text-white" : "bg-white text-[#171717]"
+        }`}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={testingAll}
+          className={`absolute right-4 top-4 z-10 flex h-9 w-9 items-center justify-center rounded-2xl transition ${
+            isDark
+              ? "bg-white/[0.08] text-white/60 hover:bg-white/[0.12]"
+              : "bg-[#f1f5f9] text-[#475569] hover:bg-[#e2e8f0]"
+          } disabled:opacity-50`}
+        >
+          <X className="h-4 w-4" />
+        </button>
+
+        <div className="bg-[#229ED9] px-6 pb-7 pt-8 text-center text-white">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-white/18">
+            <CheckCircle2 className="h-8 w-8" />
+          </div>
+
+          <div className="mt-4 text-xl font-semibold tracking-[-0.03em]">
+            Test All Telegram Accounts
+          </div>
+
+          <div className="mt-1 text-sm text-white/75">
+            Bulk session health check
+          </div>
+        </div>
+
+        <div className="px-6 py-6">
+          <WidgetTitle
+            title={`Test ${accountCount} account${accountCount === 1 ? "" : "s"}?`}
+            text="This will check saved Telegram sessions through their assigned network profiles. Accounts with bad sessions or bad IPs may be marked disconnected."
+            isDark={isDark}
+          />
+
+          <div
+            className={`mt-5 rounded-2xl px-4 py-3 text-xs leading-5 ${
+              isDark
+                ? "bg-white/[0.06] text-white/45"
+                : "bg-[#f8fafc] text-[#64748b]"
+            }`}
+          >
+            Recommended: keep concurrency at 3 so the server does not test too
+            many Telegram sessions at the same time.
+          </div>
+
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={testingAll}
+              className={modalSecondaryButtonClass(isDark)}
+            >
+              Cancel
+            </button>
+
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={testingAll || accountCount === 0}
+              className={telegramButtonClass("w-full")}
+            >
+              {testingAll ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Testing...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-4 w-4" />
+                  Start Test All
+                </>
+              )}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
