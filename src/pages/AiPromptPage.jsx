@@ -724,29 +724,42 @@ export default function AiPromptPage() {
       setPreviewItems([]);
       setCheckedPreviewIndexes([]);
 
+      const res = await api.post(
+        "/api/telegram-chats/sync-all?limit=30&concurrency=1&delayMs=5000",
+      );
+
+      console.log("AI page sync-all result:", res.data);
+
+      const syncedAccounts = Number(res.data?.syncedAccounts || 0);
+      const failedAccounts = Number(res.data?.failedAccounts || 0);
+      const totalSavedChats = Number(res.data?.totalSavedChats || 0);
+      const syncedData = Array.isArray(res.data?.results)
+        ? res.data.results
+        : [];
+      const failedData = Array.isArray(res.data?.failed) ? res.data.failed : [];
+
+      if (failedData.length) {
+        console.table(
+          failedData.map((item) => ({
+            accountId: item.accountId,
+            label: item.label,
+            phoneNumber: item.phoneNumber,
+            error: item.error,
+          })),
+        );
+      }
+
       const accountsRes = await api.get("/api/telegram-auth/accounts");
       const list = Array.isArray(accountsRes.data?.data)
         ? accountsRes.data.data
         : [];
+
       const connected = list.filter(
         (item) => item.isConnected && item.status === "connected",
       );
 
-      if (!connected.length) {
-        toast.error("No connected Telegram accounts found");
-        return;
-      }
-
       setAccounts(connected);
       writeCache(CACHE_KEYS.accounts, connected);
-
-      await Promise.all(
-        connected.map((account) =>
-          api.post("/api/telegram-chats/sync", {
-            telegramAccountId: account._id,
-          }),
-        ),
-      );
 
       const chatResponses = await Promise.all(
         connected.map((account) =>
@@ -754,8 +767,8 @@ export default function AiPromptPage() {
         ),
       );
 
-      const mergedChats = chatResponses.flatMap((res) =>
-        Array.isArray(res.data?.data) ? res.data.data : [],
+      const mergedChats = chatResponses.flatMap((chatRes) =>
+        Array.isArray(chatRes.data?.data) ? chatRes.data.data : [],
       );
 
       setChats(mergedChats);
@@ -765,9 +778,23 @@ export default function AiPromptPage() {
       setSelectedGroupKeys([]);
       localStorage.setItem("aiCampaignStudio.syncedAt.v1", String(Date.now()));
       setHasSyncedThisSession(true);
-      toast.success("All Telegram accounts synced");
+
+      if (failedAccounts > 0) {
+        toast.warning(
+          `Sync completed: ${syncedAccounts} synced, ${failedAccounts} failed. Check console for failed accounts.`,
+        );
+      } else {
+        toast.success(
+          `All Telegram accounts synced: ${syncedAccounts} accounts, ${totalSavedChats} chats`,
+        );
+      }
     } catch (err) {
-      console.error("Sync all Telegram accounts error:", err);
+      console.error("AI page sync-all failed:", {
+        message: err?.message,
+        status: err?.response?.status,
+        data: err?.response?.data,
+      });
+
       toast.error(
         err?.response?.data?.message ||
           err?.response?.data?.error ||

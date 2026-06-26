@@ -965,7 +965,7 @@ export default function TelegramChats() {
       setSyncingAll(true);
 
       const res = await api.post(
-        "/api/telegram-chats/sync-all?limit=100&concurrency=3",
+        "/api/telegram-chats/sync-all?limit=30&concurrency=1&delayMs=5000",
       );
 
       const syncedAccounts = Number(res.data?.syncedAccounts || 0);
