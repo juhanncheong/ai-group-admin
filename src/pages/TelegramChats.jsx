@@ -279,6 +279,42 @@ function getRememberedValue(key, fallback = "") {
   }
 }
 
+function isActiveSyncAllJob(job) {
+  return (
+    !!job &&
+    job.locked === true &&
+    ["queued", "running"].includes(String(job.status || ""))
+  );
+}
+
+function formatSyncDuration(seconds) {
+  const total = Math.max(0, Number(seconds || 0));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+
+  if (h > 0) {
+    return `${h}h ${String(m).padStart(2, "0")}m ${String(s).padStart(
+      2,
+      "0",
+    )}s`;
+  }
+
+  return `${m}m ${String(s).padStart(2, "0")}s`;
+}
+
+function getLocalElapsedSeconds(job, now) {
+  if (!job?.startedAt) return Number(job?.elapsedSeconds || 0);
+
+  const started = new Date(job.startedAt).getTime();
+
+  if (!Number.isFinite(started)) {
+    return Number(job?.elapsedSeconds || 0);
+  }
+
+  return Math.max(0, Math.floor((now - started) / 1000));
+}
+
 export default function TelegramChats() {
   const { theme } = useTheme();
   const isDark = theme === "dark";
@@ -287,6 +323,7 @@ export default function TelegramChats() {
   const messageInputRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const shouldScrollToBottomRef = useRef(false);
+  const syncAllJobRef = useRef(null);
   const [mediaPanel, setMediaPanel] = useState("");
 
   const [profileOpen, setProfileOpen] = useState(false);
@@ -426,8 +463,15 @@ export default function TelegramChats() {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
+  const [syncAllConfirmOpen, setSyncAllConfirmOpen] = useState(false);
+  const [syncAllJob, setSyncAllJob] = useState(null);
+  const [syncAllActionLoading, setSyncAllActionLoading] = useState(false);
+  const [syncAllNow, setSyncAllNow] = useState(Date.now());
   const [sending, setSending] = useState(false);
   const [messageActionId, setMessageActionId] = useState("");
+
+  const syncAllActive = isActiveSyncAllJob(syncAllJob);
+  const adminLockedBySyncAll = syncAllActive;
 
   useEffect(() => {
     rememberValue("tg:selectedAccountId", selectedAccountId);
@@ -465,6 +509,36 @@ export default function TelegramChats() {
     loadAccounts({
       silent: accounts.length > 0,
     });
+  }, []);
+
+  useEffect(() => {
+    let stopped = false;
+
+    async function bootSyncStatus() {
+      await loadSyncAllStatus({
+        silent: true,
+        stoppedRef: () => stopped,
+      });
+    }
+
+    bootSyncStatus();
+
+    const statusTimer = window.setInterval(() => {
+      loadSyncAllStatus({
+        silent: true,
+        stoppedRef: () => stopped,
+      });
+    }, 5000);
+
+    const clockTimer = window.setInterval(() => {
+      setSyncAllNow(Date.now());
+    }, 1000);
+
+    return () => {
+      stopped = true;
+      window.clearInterval(statusTimer);
+      window.clearInterval(clockTimer);
+    };
   }, []);
 
   useEffect(() => {
@@ -634,6 +708,8 @@ export default function TelegramChats() {
     function handleEscape(e) {
       if (e.key !== "Escape") return;
 
+      if (adminLockedBySyncAll) return;
+
       if (imagePreviewOpen) {
         closeImagePreview();
         return;
@@ -701,6 +777,7 @@ export default function TelegramChats() {
     deleteContactModalOpen,
     createGroupOpen,
     accountPanelOpen,
+    adminLockedBySyncAll,
     selectedChatId,
   ]);
 
@@ -960,51 +1037,132 @@ export default function TelegramChats() {
     }
   }
 
-  async function syncAllChats() {
+  async function loadSyncAllStatus(options = {}) {
+    const silent = options.silent ?? false;
+    const stoppedRef = options.stoppedRef || (() => false);
+
     try {
-      setSyncingAll(true);
+      if (!silent) setSyncAllActionLoading(true);
 
-      const res = await api.post(
-        "/api/telegram-chats/sync-all?limit=30&concurrency=1&delayMs=5000",
-      );
+      const res = await api.get("/api/telegram-chats/sync-all/status");
 
-      const syncedAccounts = Number(res.data?.syncedAccounts || 0);
-      const failedAccounts = Number(res.data?.failedAccounts || 0);
-      const totalSavedChats = Number(res.data?.totalSavedChats || 0);
+      if (stoppedRef()) return;
 
-      if (failedAccounts > 0) {
-        toast.warning(
-          `Sync all completed: ${syncedAccounts} accounts synced, ${failedAccounts} failed`,
-        );
-      } else {
-        toast.success(
-          `All accounts synced: ${syncedAccounts} accounts, ${totalSavedChats} chats`,
-        );
-      }
+      const job = res.data?.job || null;
+      const wasActive = isActiveSyncAllJob(syncAllJobRef.current);
+      const isActive = isActiveSyncAllJob(job);
 
-      await loadAccounts({
-        silent: true,
-      });
+      syncAllJobRef.current = job;
+      setSyncAllJob(job);
+      setSyncingAll(isActive);
 
-      if (selectedAccountId) {
-        localStorage.removeItem(`tg:chats:${selectedAccountId}:active`);
-        localStorage.removeItem(`tg:chats:${selectedAccountId}:archived`);
-        localStorage.removeItem(`tg:chats:${selectedAccountId}:saved`);
+      if (wasActive && !isActive && job?.status === "completed") {
+        toast.success("Telegram sync all completed");
 
-        await loadChats(selectedAccountId, chatMode, {
+        await loadAccounts({
           silent: true,
         });
+
+        if (selectedAccountId) {
+          localStorage.removeItem(`tg:chats:${selectedAccountId}:active`);
+          localStorage.removeItem(`tg:chats:${selectedAccountId}:archived`);
+          localStorage.removeItem(`tg:chats:${selectedAccountId}:saved`);
+
+          await loadChats(selectedAccountId, chatMode, {
+            silent: true,
+          });
+        }
+      }
+
+      if (wasActive && !isActive && job?.status === "failed") {
+        toast.error(job?.lastError || "Telegram sync all failed");
+      }
+
+      if (wasActive && !isActive && job?.status === "cancelled") {
+        toast.warning("Telegram sync all cancelled");
       }
     } catch (err) {
-      console.error("Sync all chats error:", err);
+      console.error("Load sync all status error:", err);
+
+      if (!silent) {
+        toast.error(
+          err?.response?.data?.message ||
+            err?.response?.data?.error ||
+            "Failed to load sync status",
+        );
+      }
+    } finally {
+      if (!silent) setSyncAllActionLoading(false);
+    }
+  }
+
+  async function syncAllChats() {
+    setSyncAllConfirmOpen(true);
+  }
+
+  async function confirmStartSyncAllChats() {
+    try {
+      setSyncAllActionLoading(true);
+
+      const res = await api.post("/api/telegram-chats/sync-all/start", {
+        pageLimit: 100,
+        maxPagesPerAccount: 50,
+        delayBetweenPagesMs: 8000,
+        delayBetweenAccountsMs: 15000,
+      });
+
+      const job = res.data?.job || null;
+
+      syncAllJobRef.current = job;
+      setSyncAllJob(job);
+      setSyncingAll(isActiveSyncAllJob(job));
+      setSyncAllConfirmOpen(false);
+
+      toast.success("Telegram sync all started in background");
+    } catch (err) {
+      console.error("Start sync all chats error:", err);
+
+      const activeJob = err?.response?.data?.job || null;
+
+      if (activeJob) {
+        syncAllJobRef.current = activeJob;
+        setSyncAllJob(activeJob);
+        setSyncingAll(isActiveSyncAllJob(activeJob));
+        setSyncAllConfirmOpen(false);
+      }
 
       toast.error(
         err?.response?.data?.message ||
           err?.response?.data?.error ||
-          "Failed to sync all Telegram accounts",
+          "Failed to start Telegram sync all",
       );
     } finally {
-      setSyncingAll(false);
+      setSyncAllActionLoading(false);
+    }
+  }
+
+  async function cancelSyncAllChats() {
+    try {
+      setSyncAllActionLoading(true);
+
+      const res = await api.post("/api/telegram-chats/sync-all/cancel");
+      const job = res.data?.job || null;
+
+      syncAllJobRef.current = job;
+      setSyncAllJob(job);
+      setSyncingAll(isActiveSyncAllJob(job));
+
+      toast.warning("Telegram sync all cancellation requested");
+    } catch (err) {
+      console.error("Cancel sync all error:", err);
+
+      toast.error(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Failed to cancel sync all",
+      );
+    } finally {
+      setSyncAllActionLoading(false);
     }
   }
 
@@ -2712,7 +2870,9 @@ export default function TelegramChats() {
                     <button
                       type="button"
                       onClick={syncAllChats}
-                      disabled={syncingAll || loadingAccounts}
+                      disabled={
+                        syncingAll || loadingAccounts || adminLockedBySyncAll
+                      }
                       className={primarySmallButton()}
                     >
                       {syncingAll ? (
@@ -3275,6 +3435,28 @@ export default function TelegramChats() {
               )}
             </main>
 
+            {syncAllConfirmOpen && (
+              <SyncAllConfirmModal
+                isDark={isDark}
+                loading={syncAllActionLoading}
+                onClose={() => {
+                  if (!syncAllActionLoading) setSyncAllConfirmOpen(false);
+                }}
+                onConfirm={confirmStartSyncAllChats}
+              />
+            )}
+
+            {adminLockedBySyncAll && (
+              <SyncAllProgressModal
+                isDark={isDark}
+                job={syncAllJob}
+                now={syncAllNow}
+                loading={syncAllActionLoading}
+                onRefresh={() => loadSyncAllStatus({ silent: false })}
+                onCancel={cancelSyncAllChats}
+              />
+            )}
+
             {createGroupOpen && (
               <CreateGroupModal
                 isDark={isDark}
@@ -3304,6 +3486,335 @@ export default function TelegramChats() {
         </section>
       </div>
     </Shell>
+  );
+}
+
+function SyncAllConfirmModal({ isDark, loading, onClose, onConfirm }) {
+  return (
+    <div className="fixed inset-0 z-[220] flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
+      <div
+        className={`w-full max-w-[560px] overflow-hidden rounded-[28px] border shadow-2xl ${
+          isDark
+            ? "border-white/[0.08] bg-[#202127] text-white"
+            : "border-[#eadfce] bg-white text-[#201d19]"
+        }`}
+      >
+        <div className="p-7">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#229ED9]/10 text-[#229ED9]">
+              <ShieldOff className="h-6 w-6" />
+            </div>
+
+            <div>
+              <div className="text-xl font-bold">
+                Confirm full Telegram sync
+              </div>
+
+              <div
+                className={`mt-2 text-sm leading-6 ${
+                  isDark ? "text-white/55" : "text-[#70675c]"
+                }`}
+              >
+                This will sync all connected Telegram accounts one by one. It
+                may take a long time. While it is running, the admin panel will
+                be locked to avoid heavy server actions.
+              </div>
+            </div>
+          </div>
+
+          <div
+            className={`mt-6 rounded-2xl border p-4 text-sm leading-6 ${
+              isDark
+                ? "border-white/[0.08] bg-white/[0.04] text-white/65"
+                : "border-[#eadfce] bg-[#f7f2ea] text-[#5f5549]"
+            }`}
+          >
+            <div>Safe mode settings:</div>
+
+            <div className="mt-2 grid gap-1">
+              <div>• 1 Telegram account at a time</div>
+              <div>• 100 dialogs per page</div>
+              <div>• 8 seconds between pages</div>
+              <div>• 15 seconds cooldown before the next account</div>
+              <div>• Progress survives page refresh</div>
+            </div>
+          </div>
+        </div>
+
+        <div
+          className={`flex items-center justify-between border-t px-7 py-5 ${
+            isDark ? "border-white/[0.08]" : "border-[#eadfce]"
+          }`}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={loading}
+            className={`text-sm font-semibold ${
+              isDark ? "text-white/55" : "text-[#70675c]"
+            } disabled:opacity-50`}
+          >
+            Cancel
+          </button>
+
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={loading}
+            className="inline-flex items-center gap-2 rounded-full bg-[#229ED9] px-5 py-3 text-sm font-bold text-white shadow-lg shadow-[#229ED9]/20 transition hover:-translate-y-0.5 disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            Start safe sync
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SyncAllProgressModal({
+  isDark,
+  job,
+  now,
+  loading,
+  onRefresh,
+  onCancel,
+}) {
+  const totalAccounts = Number(job?.totalAccounts || 0);
+  const syncedAccounts = Number(job?.syncedAccounts || 0);
+  const failedAccounts = Number(job?.failedAccounts || 0);
+  const skippedAccounts = Number(job?.skippedAccounts || 0);
+  const completedAccounts = syncedAccounts + failedAccounts + skippedAccounts;
+
+  const progress =
+    totalAccounts > 0
+      ? Math.min(100, Math.round((completedAccounts / totalAccounts) * 100))
+      : Number(job?.progressPercent || 0);
+
+  const elapsedSeconds = getLocalElapsedSeconds(job, now);
+  const etaSeconds = job?.etaSeconds;
+
+  const currentAccount =
+    job?.currentAccountLabel ||
+    (job?.currentAccountIndex
+      ? `Account ${job.currentAccountIndex}`
+      : "Preparing account");
+
+  const logs = Array.isArray(job?.logs) ? job.logs.slice(-6).reverse() : [];
+
+  return (
+    <div className="fixed inset-0 z-[230] flex items-center justify-center bg-black/70 px-4 backdrop-blur-md">
+      <div
+        className={`w-full max-w-[720px] overflow-hidden rounded-[30px] border shadow-2xl ${
+          isDark
+            ? "border-white/[0.08] bg-[#202127] text-white"
+            : "border-[#eadfce] bg-white text-[#201d19]"
+        }`}
+      >
+        <div className="p-7">
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-start gap-4">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#229ED9]/10 text-[#229ED9]">
+                <Loader2 className="h-7 w-7 animate-spin" />
+              </div>
+
+              <div>
+                <div className="text-xl font-bold">
+                  Telegram sync is running
+                </div>
+
+                <div
+                  className={`mt-1 text-sm ${
+                    isDark ? "text-white/50" : "text-[#70675c]"
+                  }`}
+                >
+                  Admin panel is locked until this job finishes.
+                </div>
+              </div>
+            </div>
+
+            <div
+              className={`rounded-2xl px-4 py-3 text-right text-sm ${
+                isDark ? "bg-white/[0.04]" : "bg-[#f7f2ea]"
+              }`}
+            >
+              <div className="font-bold text-[#229ED9]">
+                {formatSyncDuration(elapsedSeconds)}
+              </div>
+
+              <div className={isDark ? "text-white/40" : "text-[#70675c]"}>
+                elapsed
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-7">
+            <div className="mb-2 flex items-center justify-between text-sm">
+              <span className={isDark ? "text-white/55" : "text-[#70675c]"}>
+                Progress
+              </span>
+
+              <span className="font-bold text-[#229ED9]">{progress}%</span>
+            </div>
+
+            <div
+              className={`h-3 overflow-hidden rounded-full ${
+                isDark ? "bg-white/[0.08]" : "bg-[#eadfce]"
+              }`}
+            >
+              <div
+                className="h-full rounded-full bg-[#229ED9] transition-all duration-700"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <SyncInfoCard
+              isDark={isDark}
+              label="Current account"
+              value={`${job?.currentAccountIndex || 0}/${totalAccounts || 0}`}
+              subValue={currentAccount}
+            />
+
+            <SyncInfoCard
+              isDark={isDark}
+              label="Current page"
+              value={`Page ${job?.currentPage || 0}`}
+              subValue={`${job?.currentPageDialogCount || 0} dialogs on last page`}
+            />
+
+            <SyncInfoCard
+              isDark={isDark}
+              label="Dialogs synced"
+              value={String(job?.totalDialogsSynced || 0)}
+              subValue={`${syncedAccounts} done, ${failedAccounts} failed, ${skippedAccounts} skipped`}
+            />
+
+            <SyncInfoCard
+              isDark={isDark}
+              label="Estimated remaining"
+              value={
+                etaSeconds === null || etaSeconds === undefined
+                  ? "Calculating"
+                  : formatSyncDuration(etaSeconds)
+              }
+              subValue={job?.status || "running"}
+            />
+          </div>
+
+          <div
+            className={`mt-6 rounded-2xl border p-4 ${
+              isDark
+                ? "border-white/[0.08] bg-white/[0.03]"
+                : "border-[#eadfce] bg-[#f7f2ea]"
+            }`}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-sm font-bold">Latest activity</div>
+
+              <button
+                type="button"
+                onClick={onRefresh}
+                disabled={loading}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-[#229ED9] disabled:opacity-50"
+              >
+                {loading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                Refresh
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {logs.length > 0 ? (
+                logs.map((log, index) => (
+                  <div
+                    key={`${log.createdAt || index}-${index}`}
+                    className={`rounded-xl px-3 py-2 text-xs ${
+                      log.level === "error"
+                        ? "bg-red-500/10 text-red-500"
+                        : log.level === "warn"
+                          ? "bg-amber-500/10 text-amber-600"
+                          : isDark
+                            ? "bg-white/[0.04] text-white/55"
+                            : "bg-white text-[#70675c]"
+                    }`}
+                  >
+                    {log.message || "Sync update"}
+                  </div>
+                ))
+              ) : (
+                <div
+                  className={`text-sm ${
+                    isDark ? "text-white/40" : "text-[#70675c]"
+                  }`}
+                >
+                  Waiting for first sync update...
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div
+          className={`flex items-center justify-between border-t px-7 py-5 ${
+            isDark ? "border-white/[0.08]" : "border-[#eadfce]"
+          }`}
+        >
+          <div
+            className={`text-xs ${isDark ? "text-white/35" : "text-[#70675c]"}`}
+          >
+            Do not redeploy or restart the server while this is running.
+          </div>
+
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={loading}
+            className="text-sm font-bold text-red-500 disabled:opacity-50"
+          >
+            Emergency cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SyncInfoCard({ isDark, label, value, subValue }) {
+  return (
+    <div
+      className={`rounded-2xl border p-4 ${
+        isDark
+          ? "border-white/[0.08] bg-white/[0.03]"
+          : "border-[#eadfce] bg-[#f7f2ea]"
+      }`}
+    >
+      <div
+        className={`text-xs font-semibold uppercase tracking-[0.16em] ${
+          isDark ? "text-white/35" : "text-[#9b9081]"
+        }`}
+      >
+        {label}
+      </div>
+
+      <div className="mt-2 text-lg font-bold">{value}</div>
+
+      <div
+        className={`mt-1 truncate text-sm ${
+          isDark ? "text-white/45" : "text-[#70675c]"
+        }`}
+      >
+        {subValue}
+      </div>
+    </div>
   );
 }
 
