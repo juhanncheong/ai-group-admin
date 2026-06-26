@@ -4,13 +4,9 @@ import {
   CalendarClock,
   CheckCircle2,
   ChevronDown,
-  Clock3,
-  Edit3,
-  Layers3,
   Loader2,
   MessageCircle,
   MessageSquareText,
-  RefreshCw,
   Search,
   Send,
   ShieldCheck,
@@ -181,16 +177,6 @@ function writeCache(key, value) {
   }
 }
 
-function mergeById(oldList, newList) {
-  const map = new Map();
-
-  [...oldList, ...newList].forEach((item) => {
-    if (item?._id) map.set(item._id, item);
-  });
-
-  return Array.from(map.values());
-}
-
 function getAccountIdFromChat(chat) {
   return typeof chat.telegramAccountId === "object"
     ? chat.telegramAccountId?._id
@@ -317,8 +303,8 @@ export default function AiPromptPage() {
   const [dropdownOpen, setDropdownOpen] = useState(null);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [loadingChats, setLoadingChats] = useState(false);
-  const [syncingAll, setSyncingAll] = useState(false);
-  const [hasSyncedThisSession, setHasSyncedThisSession] = useState(false);
+  const [loadingStudioData, setLoadingStudioData] = useState(false);
+  const [studioDataLoaded, setStudioDataLoaded] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [creating, setCreating] = useState(false);
 
@@ -335,7 +321,7 @@ export default function AiPromptPage() {
   const [accountDrawerMode, setAccountDrawerMode] = useState("select");
   const promptTextareaRef = useRef(null);
 
-  const pageLocked = !hasSyncedThisSession || syncingAll;
+  const pageLocked = loadingStudioData || !studioDataLoaded;
   const isGroupChatMode = mode === "group_chat";
 
   const promptTemplateOptions = isGroupChatMode
@@ -599,13 +585,8 @@ export default function AiPromptPage() {
   }, [readiness]);
 
   useEffect(() => {
-    loadAccounts();
+    loadAiStudioData();
   }, []);
-
-  useEffect(() => {
-    if (!hasSyncedThisSession) return;
-    loadChatsForAccounts();
-  }, [selectedAccountIds, hasSyncedThisSession]);
 
   useEffect(() => {
     if (mode === "group_chat") {
@@ -688,161 +669,42 @@ export default function AiPromptPage() {
     return () => window.removeEventListener("keydown", handleEscape);
   }, [previewModalOpen, accountDrawerOpen, targetDrawerOpen, dropdownOpen]);
 
-  async function loadAccounts() {
+  async function loadAiStudioData() {
     try {
+      setLoadingStudioData(true);
       setLoadingAccounts(true);
+      setLoadingChats(true);
 
-      const res = await api.get("/api/telegram-auth/accounts");
-      const list = Array.isArray(res.data?.data) ? res.data.data : [];
-      const connected = list.filter(
-        (item) => item.isConnected && item.status === "connected",
-      );
+      const res = await api.get("/api/ai-messages/studio-data");
+
+      const data = res.data?.data || {};
+      const connected = Array.isArray(data.accounts) ? data.accounts : [];
+      const savedChats = Array.isArray(data.chats) ? data.chats : [];
 
       setAccounts(connected);
+      setChats(savedChats);
+
       writeCache(CACHE_KEYS.accounts, connected);
+      writeCache(CACHE_KEYS.chats, savedChats);
+
       setSelectedAccountIds((prev) =>
         prev.filter((id) => connected.some((account) => account._id === id)),
       );
+
+      setStudioDataLoaded(true);
     } catch (err) {
-      console.error("Load accounts error:", err);
+      console.error("Load AI studio data error:", err);
+
+      setStudioDataLoaded(false);
+
       toast.error(
         err?.response?.data?.message ||
           err?.response?.data?.error ||
-          "Failed to load Telegram accounts",
+          "Failed to load AI studio data",
       );
     } finally {
+      setLoadingStudioData(false);
       setLoadingAccounts(false);
-    }
-  }
-
-  async function syncAllTelegramAccounts() {
-    try {
-      setSyncingAll(true);
-      setLoadingChats(true);
-      setResult(null);
-      setPreview(null);
-      setPreviewItems([]);
-      setCheckedPreviewIndexes([]);
-
-      const res = await api.post(
-        "/api/telegram-chats/sync-all?limit=30&concurrency=1&delayMs=5000",
-      );
-
-      console.log("AI page sync-all result:", res.data);
-
-      const syncedAccounts = Number(res.data?.syncedAccounts || 0);
-      const failedAccounts = Number(res.data?.failedAccounts || 0);
-      const totalSavedChats = Number(res.data?.totalSavedChats || 0);
-      const syncedData = Array.isArray(res.data?.results)
-        ? res.data.results
-        : [];
-      const failedData = Array.isArray(res.data?.failed) ? res.data.failed : [];
-
-      if (failedData.length) {
-        console.table(
-          failedData.map((item) => ({
-            accountId: item.accountId,
-            label: item.label,
-            phoneNumber: item.phoneNumber,
-            error: item.error,
-          })),
-        );
-      }
-
-      const accountsRes = await api.get("/api/telegram-auth/accounts");
-      const list = Array.isArray(accountsRes.data?.data)
-        ? accountsRes.data.data
-        : [];
-
-      const connected = list.filter(
-        (item) => item.isConnected && item.status === "connected",
-      );
-
-      setAccounts(connected);
-      writeCache(CACHE_KEYS.accounts, connected);
-
-      const chatResponses = await Promise.all(
-        connected.map((account) =>
-          api.get(`/api/telegram-chats?telegramAccountId=${account._id}`),
-        ),
-      );
-
-      const mergedChats = chatResponses.flatMap((chatRes) =>
-        Array.isArray(chatRes.data?.data) ? chatRes.data.data : [],
-      );
-
-      setChats(mergedChats);
-      writeCache(CACHE_KEYS.chats, mergedChats);
-      setSelectedAccountIds([]);
-      setSelectedChatKeys([]);
-      setSelectedGroupKeys([]);
-      localStorage.setItem("aiCampaignStudio.syncedAt.v1", String(Date.now()));
-      setHasSyncedThisSession(true);
-
-      if (failedAccounts > 0) {
-        toast.warning(
-          `Sync completed: ${syncedAccounts} synced, ${failedAccounts} failed. Check console for failed accounts.`,
-        );
-      } else {
-        toast.success(
-          `All Telegram accounts synced: ${syncedAccounts} accounts, ${totalSavedChats} chats`,
-        );
-      }
-    } catch (err) {
-      console.error("AI page sync-all failed:", {
-        message: err?.message,
-        status: err?.response?.status,
-        data: err?.response?.data,
-      });
-
-      toast.error(
-        err?.response?.data?.message ||
-          err?.response?.data?.error ||
-          "Failed to sync Telegram accounts",
-      );
-    } finally {
-      setSyncingAll(false);
-      setLoadingChats(false);
-    }
-  }
-
-  async function loadChatsForAccounts() {
-    if (!selectedAccountIds.length) {
-      setSelectedChatKeys([]);
-      setSelectedGroupKeys([]);
-      return;
-    }
-
-    try {
-      setLoadingChats(true);
-
-      const responses = await Promise.all(
-        selectedAccountIds.map((accountId) =>
-          api.get(`/api/telegram-chats?telegramAccountId=${accountId}`),
-        ),
-      );
-
-      const mergedChatsFromApi = responses.flatMap((res) =>
-        Array.isArray(res.data?.data) ? res.data.data : [],
-      );
-
-      setChats((prev) => {
-        const selectedAccountSet = new Set(selectedAccountIds);
-        const otherAccountChats = prev.filter(
-          (chat) => !selectedAccountSet.has(getAccountIdFromChat(chat)),
-        );
-        const next = mergeById(otherAccountChats, mergedChatsFromApi);
-        writeCache(CACHE_KEYS.chats, next);
-        return next;
-      });
-    } catch (err) {
-      console.error("Load chats error:", err);
-      toast.error(
-        err?.response?.data?.message ||
-          err?.response?.data?.error ||
-          "Failed to load Telegram chats",
-      );
-    } finally {
       setLoadingChats(false);
     }
   }
@@ -1056,7 +918,7 @@ export default function AiPromptPage() {
 
   function validateBeforeGenerate() {
     if (pageLocked) {
-      toast.error("Please sync all Telegram accounts first");
+      toast.error("AI studio data is still loading. Please wait a moment.");
       return false;
     }
 
@@ -1292,19 +1154,16 @@ export default function AiPromptPage() {
         <div className="mx-auto space-y-5">
           <HeroHeader
             isDark={isDark}
-            syncingAll={syncingAll}
-            onSync={syncAllTelegramAccounts}
+            loadingStudioData={loadingStudioData}
             selectedAccountCount={selectedAccountIds.length}
             selectedTargetCount={selectedTargetCount}
             previewCount={previewItems.length}
             readinessScore={readinessScore}
           />
-
-          {!hasSyncedThisSession && (
+          {loadingStudioData && (
             <StudioNotice isDark={isDark}>
-              Click <span className="font-medium">Sync All Accounts</span>{" "}
-              first. This refreshes connected Telegram accounts, chats, and
-              shared groups for this studio session.
+              Loading connected Telegram accounts and saved chats silently. No
+              live Telegram sync is running.
             </StudioNotice>
           )}
 
@@ -1816,8 +1675,7 @@ export default function AiPromptPage() {
 
 function HeroHeader({
   isDark,
-  syncingAll,
-  onSync,
+  loadingStudioData,
   selectedAccountCount,
   selectedTargetCount,
   previewCount,
@@ -1836,25 +1694,17 @@ function HeroHeader({
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <MiniStat
           isDark={isDark}
+          label="Data"
+          value={loadingStudioData ? "Loading" : "Ready"}
+        />
+        <MiniStat
+          isDark={isDark}
           label="Accounts"
           value={selectedAccountCount}
         />
         <MiniStat isDark={isDark} label="Targets" value={selectedTargetCount} />
         <MiniStat isDark={isDark} label="Preview" value={previewCount} />
         <MiniStat isDark={isDark} label="Ready" value={`${readinessScore}%`} />
-        <button
-          type="button"
-          onClick={onSync}
-          disabled={syncingAll}
-          className={syncButtonClass()}
-        >
-          {syncingAll ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4" />
-          )}
-          {syncingAll ? "Syncing..." : "Sync All"}
-        </button>
       </div>
     </div>
   );
@@ -2837,10 +2687,6 @@ function inputClass(isDark) {
 
 function primaryButton() {
   return "inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-[15px] bg-[#d8c49a] px-4 text-[13px] font-semibold text-[#171717] transition hover:bg-[#e4d1a9] disabled:cursor-not-allowed disabled:opacity-60";
-}
-
-function syncButtonClass() {
-  return "inline-flex min-h-[42px] items-center justify-center gap-2 rounded-[14px] bg-[#d8c49a] px-4 text-[13px] font-semibold text-[#171717] transition hover:bg-[#e4d1a9] disabled:cursor-not-allowed disabled:opacity-60";
 }
 
 function selectorButtonClass(isDark) {
