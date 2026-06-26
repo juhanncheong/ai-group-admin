@@ -606,28 +606,9 @@ export default function TelegramChats() {
   }, [selectedChatId]);
 
   useEffect(() => {
-    if (!selectedAccountId) return;
-
-    api
-      .post("/api/telegram-chats/realtime/start", {
-        telegramAccountId: selectedAccountId,
-      })
-      .catch((err) => {
-        console.error("Start realtime error:", err);
-        toast.error(
-          err?.response?.data?.message ||
-            err?.response?.data?.error ||
-            "Failed to start Telegram realtime",
-        );
-      });
-
-    return () => {
-      api
-        .post("/api/telegram-chats/realtime/stop", {
-          telegramAccountId: selectedAccountId,
-        })
-        .catch(() => {});
-    };
+    // Realtime is disabled by default to avoid Telegram update-loop TIMEOUT logs.
+    // Normal chat opening, loading messages, sending messages, and sync still work.
+    // Later we can add a manual "Live ON" button if needed.
   }, [selectedAccountId]);
 
   useEffect(() => {
@@ -647,10 +628,10 @@ export default function TelegramChats() {
 
     if (Array.isArray(cachedMessages)) {
       setMessages(cachedMessages);
-      loadMessages(selectedChatId, true);
+      loadMessages(selectedChatId, true, true);
     } else {
       setMessages([]);
-      loadMessages(selectedChatId, false);
+      loadMessages(selectedChatId, false, true);
     }
 
     socket.emit("join-chat", {
